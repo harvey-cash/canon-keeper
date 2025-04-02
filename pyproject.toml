@@ -1,0 +1,9 @@
+# pyproject.toml
+[tool.black]
+line-length = 88
+
+[tool.ruff]
+line-length = 88
+lint.select = ["E", "W", "F", "I", "UP", "B", "C4", "ASYNC"] # Example rule set
+lint.ignore = []
+# Add other Ruff configurations as needed

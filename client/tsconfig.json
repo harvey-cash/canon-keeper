@@ -1,0 +1,33 @@
+// client/tsconfig.json
+{
+  "compilerOptions": {
+    "target": "ES2020", // Use modern ECMAScript features
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"], // Include DOM types for browser APIs
+    "module": "ESNext", // Let Vite handle module bundling
+    "skipLibCheck": true, // Skip type checking of declaration files (node_modules)
+    /* Bundler mode */
+    "moduleResolution": "bundler", // Aligns with modern bundler expectations (like Vite)
+    "allowImportingTsExtensions": true, // Required by moduleResolution: "bundler"
+    "resolveJsonModule": true,
+    "isolatedModules": true, // Ensures files can be transpiled independently
+    "noEmit": true, // IMPORTANT: Vite handles emission, tsc is only for type checking
+    "jsx": "react-jsx", // Use the modern React JSX transform
+    /* Linting */
+    "strict": true, // Enable all strict type-checking options (recommended)
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    /* Aliases (Optional, configure if needed) */
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"] // Example: allows imports like "@/components/Button"
+    }
+  },
+  "include": ["src"], // Which files TypeScript should check
+  "references": [
+    {
+      "path": "./tsconfig.node.json"
+    }
+  ] // Often needed for Vite config file type checking
+}
