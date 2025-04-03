@@ -1,32 +1,16 @@
 import io
+import json
 import os
 import tkinter as tk
+import typing
 from tkinter import filedialog
 
 import assemblyai as aai
 
-# --- Helper Function to Format Transcript ---
 
-
-def _format_transcript(transcript: aai.Transcript) -> str:
-    """Formats the transcript with speaker labels."""
-    if not transcript.utterances:
-        return "No utterances found in the transcript."
-
-    formatted_lines = []
-    for utterance in transcript.utterances:
-        speaker = utterance.speaker if utterance.speaker else "Unknown"
-        formatted_lines.append(f"Speaker {speaker}:")
-        formatted_lines.append(utterance.text)
-        formatted_lines.append("")  # Add blank line between utterances
-
-    return "\n".join(formatted_lines).strip()
-
-
-# --- Transcription Function ---
-
-
-def mp3_to_transcript(audio_data: io.BytesIO, api_key: str) -> str:
+def mp3_to_transcript(
+    audio_data: io.BytesIO, api_key: str
+) -> typing.Optional[aai.Transcript]:
     """
     Transcribes MP3 audio data using AssemblyAI.
 
@@ -35,10 +19,11 @@ def mp3_to_transcript(audio_data: io.BytesIO, api_key: str) -> str:
         api_key: Your AssemblyAI API key.
 
     Returns:
-        A formatted string transcript with speaker labels, or an error message.
+        The AssemblyAI Transcript object on success, None on failure.
     """
     if not api_key:
-        return "Error: API key is missing."
+        print("Error: API key is missing.")
+        return None
 
     aai.settings.api_key = api_key
     config = aai.TranscriptionConfig(speaker_labels=True)
@@ -47,59 +32,39 @@ def mp3_to_transcript(audio_data: io.BytesIO, api_key: str) -> str:
     print("Starting transcription process with AssemblyAI...")
 
     try:
-        # Ensure the BytesIO stream is at the beginning
-        audio_data.seek(0)
-        # Transcribe using the file-like object
+        audio_data.seek(0)  # Ensure the BytesIO stream is at the beginning
         transcript = transcriber.transcribe(audio_data, config)
 
     except Exception as e:
         print(f"Error during AssemblyAI transcription call: {e}")
-        return f"Error during transcription API call: {e}"
+        return None
 
-    # Check transcription status
     if transcript.status == aai.TranscriptStatus.error:
         print(f"Transcription failed: {transcript.error}")
-        return f"Transcription failed: {transcript.error}"
+        return None
 
-    # Print the structured API output (utterances) as requested
-    print("\n--- AssemblyAI API Utterances Output ---")
-    if transcript.utterances:
-        # Print each utterance object for inspection
-        # Note: This might be verbose for long transcripts
-        for i, utterance in enumerate(transcript.utterances):
-            print(f"Utterance {i}: {utterance}")
-    else:
-        print("No utterances returned by API.")
-    print("--- End of API Utterances Output ---\n")
-
-    # Format and return the transcript string
-    formatted_text = _format_transcript(transcript)
-    print("Transcription complete.")
-    return formatted_text
+    print("Transcription API call successful.")
+    return transcript
 
 
-# --- Main Execution Block ---
+def main():
+    try:
+        # Initialize Tkinter and hide the root window
+        root = tk.Tk()
+        root.withdraw()
 
-if __name__ == "__main__":
-    # This code runs only when the script is executed directly
+        print("Select the MP3 audio file to transcribe.")
+        audio_path = filedialog.askopenfilename(
+            title="Select MP3 Audio File",
+            filetypes=[("MP3 audio files", "*.mp3"), ("All files", "*.*")],
+        )
 
-    # Initialize Tkinter and hide the root window
-    root = tk.Tk()
-    root.withdraw()
+        if not audio_path:
+            print("No audio file selected. Exiting.")
+            return
 
-    print("Select the MP3 audio file to transcribe.")
-    # Ask user for the MP3 audio file
-    audio_path = filedialog.askopenfilename(
-        title="Select MP3 Audio File",
-        filetypes=[("MP3 audio files", "*.mp3"), ("All files", "*.*")],
-    )
-
-    if not audio_path:
-        print("No audio file selected. Exiting.")
-    else:
         print(f"Audio file selected: {audio_path}")
         print("Select the API key file (.key).")
-        # Ask user for the API key file
         key_path = filedialog.askopenfilename(
             title="Select AssemblyAI API Key File (.key)",
             filetypes=[("API Key files", "*.key"), ("All files", "*.*")],
@@ -107,66 +72,55 @@ if __name__ == "__main__":
 
         if not key_path:
             print("No API key file selected. Exiting.")
-        else:
-            print(f"API key file selected: {key_path}")
-            api_key_from_file = None
-            audio_data_bytesio = io.BytesIO()
+            return
 
-            try:
-                # Read the API key (first line of the file)
-                with open(key_path) as f_key:
-                    api_key_from_file = f_key.readline().strip()
+        print(f"API key file selected: {key_path}")
+        api_key_from_file = None
+        audio_data_bytesio = io.BytesIO()
+        transcript_object: typing.Optional[aai.Transcript] = None
 
-                if not api_key_from_file:
-                    raise ValueError("API key file is empty or key is invalid.")
+        with open(key_path) as f_key:
+            api_key_from_file = f_key.readline().strip()
+        if not api_key_from_file:
+            print("API key file is empty or key is invalid.")
+            return
 
-                # Read the audio file into BytesIO
-                with open(audio_path, "rb") as f_audio:
-                    audio_data_bytesio.write(f_audio.read())
-                audio_data_bytesio.seek(0)  # Rewind BytesIO for the function
+        print("Reading audio file...")
+        with open(audio_path, "rb") as f_audio:
+            audio_data_bytesio.write(f_audio.read())
 
-                # Call the transcription function
-                transcript_text = mp3_to_transcript(
-                    audio_data_bytesio, api_key_from_file
-                )
+        transcript_object = mp3_to_transcript(audio_data_bytesio, api_key_from_file)
 
-                # Check if transcription produced usable text
-                if (
-                    transcript_text
-                    and not transcript_text.startswith("Error:")
-                    and not transcript_text.startswith("Transcription failed:")
-                ):
-                    print(
-                        "Transcription successful. Select where to save the transcript."
-                    )
-                    # Ask user where to save the transcript
-                    output_path = filedialog.asksaveasfilename(
-                        title="Save Transcript As",
-                        defaultextension=".txt",
-                        filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
-                        # Suggest a name based on the audio file
-                        initialfile=f"{os.path.splitext(os.path.basename(audio_path))[0]}_transcript.txt",
-                    )
+        if not transcript_object:
+            print("Transcription failed. Exiting.")
+            return
 
-                    if output_path:
-                        try:
-                            # Save the transcript text to the chosen file
-                            with open(output_path, "w", encoding="utf-8") as f_out:
-                                f_out.write(transcript_text)
-                            print(f"Transcript successfully saved to: {output_path}")
-                        except Exception as save_err:
-                            print(f"Error saving transcript file: {save_err}")
-                    else:
-                        print("Save operation cancelled.")
-                else:
-                    # Print the error message returned by the function
-                    print(transcript_text)
+        print("Transcription successful.")
 
-            except FileNotFoundError as fnf_err:
-                print(f"Error: File not found - {fnf_err}")
-            except ValueError as val_err:
-                print(f"Error: {val_err}")
-            except Exception as e:
-                print(f"An unexpected error occurred: {e}")
+        print("\nSelect where to save the final transcript.")
+        output_path = filedialog.asksaveasfilename(
+            title="Save Transcript As",
+            defaultextension=".json",
+            filetypes=[("Text files", "*.json"), ("All files", "*.*")],
+            initialfile=f"{os.path.splitext(os.path.basename(audio_path))[0]}_transcript.json",
+        )
 
-    print("Script finished.")
+        if not output_path:
+            print("No output file selected. Exiting.")
+            return
+
+        transcript_json = transcript_object.json_response
+
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(transcript_json, f, ensure_ascii=False, indent=4)
+
+        print(f"Transcript successfully saved to: {output_path}")
+
+    except Exception as e:
+        print(f"Exception: {e}")
+
+    print("\nScript finished.")
+
+
+if __name__ == "__main__":
+    main()
