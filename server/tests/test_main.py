@@ -2,7 +2,7 @@
 import httpx  # Make sure httpx is imported
 import pytest
 
-from server.main import app  # Your FastAPI app instance
+from src.main import app  # Your FastAPI app instance
 
 
 @pytest.mark.asyncio

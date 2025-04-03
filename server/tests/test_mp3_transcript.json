@@ -1,6 +1,6 @@
 {
     "language_code": "en_us",
-    "audio_url": "https://cdn.assemblyai.com/upload/5e9ee1f6-b10c-429c-a46d-2f8c18bf2126",
+    "audio_url": "https://cdn.assemblyai.com/upload/c55f977b-6830-4d60-894d-8da9b436b032",
     "punctuate": true,
     "format_text": true,
     "dual_channel": false,
@@ -38,7 +38,7 @@
     "language_confidence": null,
     "speech_threshold": null,
     "speech_model": null,
-    "id": "61a2662c-9967-4951-b5c3-c961a47b9788",
+    "id": "5cfe17bb-f2cb-4b71-9e5a-13ed818ab5c6",
     "status": "completed",
     "error": null,
     "text": "This is a short audio file. Its only purpose is to test the transcription function. And now I'm going to talk in a different voice and hope that this comes up as a different speaker. Thank you for that.",
