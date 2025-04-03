@@ -79,8 +79,6 @@ def _extract_and_save_snippets(
         print(f"Error loading audio with pydub: {e}")
         return {}
 
-    print(longest_utterances)
-
     print("Extracting and saving snippets...")
     for speaker, utterance in longest_utterances.items():
         start_ms = utterance["start"]
@@ -118,6 +116,7 @@ def _prompt_for_speaker_names(
     """Prompts user to identify speakers based on saved snippets."""
     speaker_name_map = {}
     print("\nPlease listen to the saved audio snippets to identify speakers.")
+
     for speaker, filename in speaker_files.items():
         print(f"\nSnippet for Speaker {speaker} saved as: {os.path.basename(filename)}")
         while True:
@@ -129,12 +128,22 @@ def _prompt_for_speaker_names(
                     break
                 else:
                     print("Please enter a name.")
-            except EOFError:  # Handle unexpected end of input
+
+            except EOFError:
                 print("\nInput interrupted. Exiting identification.")
-                return speaker_name_map  # Return what we have so far
+                return speaker_name_map
             except KeyboardInterrupt:
                 print("\nIdentification cancelled by user.")
-                return speaker_name_map  # Return what we have so far
+                return speaker_name_map
+
+    # Delete the audio snippets after use
+    for filename in speaker_files.values():
+        try:
+            os.remove(filename)
+            print(f"Deleted snippet file: {filename}")
+        except Exception as e:
+            print(f"Error deleting snippet file {filename}: {e}")
+
     return speaker_name_map
 
 
