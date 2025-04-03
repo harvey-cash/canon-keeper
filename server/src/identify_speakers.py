@@ -1,28 +1,11 @@
 import io
 import os
-import tkinter as tk
 import typing
-from tkinter import filedialog
 
 from pydub import AudioSegment
 from pydub import exceptions as pydub_exceptions
 
-# --- Helper Functions ---
-
-
-def _get_save_directory() -> typing.Optional[str]:
-    """Prompts user to select a directory using tkinter."""
-    print("Select directory to save speaker audio snippets...")
-    root = tk.Tk()
-    root.withdraw()  # Hide the main tkinter window
-    directory = filedialog.askdirectory(title="Select Directory for Speaker Snippets")
-    root.destroy()  # Clean up the hidden window
-    if directory:
-        print(f"Snippets will be saved in: {directory}")
-        return directory
-    else:
-        print("Directory selection cancelled.")
-        return None
+from . import file_io
 
 
 def _group_utterances_by_speaker(
@@ -32,8 +15,10 @@ def _group_utterances_by_speaker(
     grouped = {}
     for utterance in utterances:
         speaker = utterance["speaker"]
+
         if speaker not in grouped:
             grouped[speaker] = []
+
         grouped[speaker].append(
             {
                 "text": utterance["text"],
@@ -50,8 +35,7 @@ def _find_longest_utterance(
     """Finds the utterance with the longest text in a list."""
     if not utterances:
         return None
-    # Find utterance with max text length, default to None if list is empty
-    return max(utterances, key=lambda u: len(getattr(u, "text", "")), default=None)
+    return max(utterances, key=lambda u: len(u["text"]), default=None)
 
 
 def _extract_and_save_snippets(
@@ -91,11 +75,7 @@ def _extract_and_save_snippets(
 
         try:
             snippet = full_audio[start_ms:end_ms]
-
-            # Sanitize speaker label
-            safe_speaker_label = "".join(
-                c if c.isalnum() else "_" for c in str(speaker)
-            )
+            safe_speaker_label = file_io.sanitize_filename(speaker)
 
             filename = os.path.join(
                 save_dir,
@@ -121,7 +101,6 @@ def _prompt_for_speaker_names(
         print(f"\nSnippet for Speaker {speaker} saved as: {os.path.basename(filename)}")
         while True:
             try:
-                # Prompt user for the name
                 name = input(f"Enter the name for Speaker {speaker}: ").strip()
                 if name:  # Ensure some name is entered
                     speaker_name_map[speaker] = name
@@ -165,7 +144,7 @@ def identify_speakers(
     Returns:
         A dictionary mapping speaker labels (e.g., 'A') to user-provided names.
     """
-    save_dir = _get_save_directory()
+    save_dir = file_io.get_save_directory("Speaker Snippets")
     if not save_dir:
         return {}  # User cancelled
 

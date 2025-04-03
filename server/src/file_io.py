@@ -1,14 +1,52 @@
 import io
 import json
-import os
 import tkinter as tk
 import typing
 from tkinter import filedialog
 
-from pydub import AudioSegment
+
+def prepare_file_dialogs():
+    """Initializes the Tkinter root window for file dialogs."""
+    root = tk.Tk()
+    root.withdraw()  # Hide the root window
 
 
-def read_audio_file(audio_path: str) -> io.BytesIO:
+def load_key(message: str = "Select an API key file.") -> str | None:
+    """Loads the API key from a file."""
+    print(message)
+    api_key_path = filedialog.askopenfilename(
+        title="Select API Key File",
+        filetypes=[("Key files", "*.key"), ("All files", "*.*")],
+    )
+    if not api_key_path:
+        print("No API key file selected.")
+        return None
+
+    print(f"API key file selected: {api_key_path}. Reading file...")
+    try:
+        with open(api_key_path) as f:
+            api_key = f.read().strip()
+        return api_key
+    except Exception as e:
+        print(f"Error reading API key file: {e}")
+        return None
+
+
+def load_audio() -> io.BytesIO | None:
+    print("Select an MP3 audio file.")
+    audio_path = filedialog.askopenfilename(
+        title="Select MP3 Audio File",
+        filetypes=[("MP3 audio files", "*.mp3"), ("All files", "*.*")],
+    )
+    if not audio_path:
+        print("No audio file selected.")
+        return None
+
+    print(f"Audio file selected: {audio_path}. Reading file...")
+    return read_audio_file(audio_path)
+
+
+def read_audio_file(audio_path: str) -> io.BytesIO | None:
     """Reads the audio file from the given path into a BytesIO object."""
     try:
         with open(audio_path, "rb") as f_audio:
@@ -19,47 +57,88 @@ def read_audio_file(audio_path: str) -> io.BytesIO:
         return None
 
 
-def get_file_path_from_dialog(title: str, filetypes: list) -> str:
-    """Opens a file dialog and returns the selected file path."""
-    root = tk.Tk()
-    root.withdraw()
-    file_path = filedialog.askopenfilename(title=title, filetypes=filetypes)
-    root.destroy()
-    return file_path
+def get_save_directory(file_kind: str) -> str | None:
+    """Prompts user to select a directory using tkinter."""
+    print(f"Select directory to save {file_kind}...")
+    directory = filedialog.askdirectory(title="Select Directory for Speaker Snippets")
+
+    if directory:
+        print(f"{file_kind} will be saved in: {directory}")
+        return directory
+    else:
+        print("Directory selection cancelled.")
+        return None
 
 
-def load_audio(audio_data: io.BytesIO) -> AudioSegment:
-    """Loads the audio data from a BytesIO object using pydub."""
+def save_file(
+    file_kind: str,
+    extension: str,
+    data: str | dict,
+    initial_file: str = "output",
+) -> str | None:
+    """Opens a save dialog and returns the selected file path."""
+    print(f"Select where to save the {file_kind}.")
+
+    save_path = filedialog.asksaveasfilename(
+        title=f"Save {file_kind} As",
+        defaultextension=f".{extension}",
+        initialfile=f"{initial_file}.{extension}",
+        filetypes=[(f"{extension} files", f"*.{extension}"), ("All files", "*.*")],
+    )
+
+    if not save_path:
+        print("No save location selected.")
+        return None
+
+    return write_file(save_path, data, mode="w", encoding="utf-8")
+
+
+def write_file(
+    file_path: str,
+    data: str | dict,
+    mode: str = "w",
+    encoding: str = "utf-8",
+    indent: int = 4,
+) -> str | None:
+    """Writes content to a file. If data is a dict, it will be saved as JSON."""
     try:
-        audio_data.seek(0)
-        audio = AudioSegment.from_file(audio_data)
-        return audio
+        if isinstance(data, dict):
+            with open(file_path, "w", encoding=encoding) as f:
+                json.dump(data, f, ensure_ascii=False, indent=indent)
+        else:
+            with open(file_path, mode, encoding=encoding) as f:
+                f.write(data)
+        print(f"File successfully saved to: {file_path}")
+        return file_path
     except Exception as e:
-        print(f"Error loading audio with pydub: {e}")
+        print(f"Error saving file: {e}")
+        return None
+
+
+def load_json(message: str = "Select a JSON file.") -> dict | None:
+    """Loads a JSON file and returns its content as a dictionary."""
+    print(message)
+    json_path = filedialog.askopenfilename(
+        title="Select JSON File",
+        filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+    )
+    if not json_path:
+        print("No JSON file selected.")
+        return None
+
+    print(f"JSON file selected: {json_path}. Reading file...")
+    try:
+        with open(json_path, encoding="utf-8") as f:
+            data = json.load(f)
+        return data
+    except Exception as e:
+        print(f"Error reading JSON file: {e}")
         return None
 
 
 def sanitize_filename(label: str) -> str:
     """Creates a safe filename from a speaker label."""
     return "".join(x if x.isalnum() else "_" for x in label)
-
-
-def create_temporary_file(suffix: str) -> io.BytesIO:
-    """Creates a temporary file with the given suffix and returns it."""
-    try:
-        return io.BytesIO()
-    except Exception as e:
-        print(f"Error creating temporary file: {e}")
-        return None
-
-
-def cleanup_temporary_file(file_path: str):
-    """Removes a temporary file, handling potential errors."""
-    try:
-        os.remove(file_path)
-        print(f"Temporary file removed: {file_path}")
-    except Exception as e:
-        print(f"Error removing temporary file: {e}")
 
 
 def copy_stream(input_stream: typing.BinaryIO, output_stream: typing.BinaryIO):
@@ -74,41 +153,3 @@ def copy_stream(input_stream: typing.BinaryIO, output_stream: typing.BinaryIO):
         output_stream.seek(0)
     except Exception as e:
         print(f"Error copying stream: {e}")
-
-
-def copy_file_to_stream(input_file: typing.BinaryIO, output_stream: io.BytesIO):
-    """Copies the content of a file to a stream."""
-    copy_stream(input_file, output_stream)
-
-
-def copy_stream_to_file(input_stream: io.BytesIO, output_file: typing.BinaryIO):
-    """Copies the content of a stream to a file."""
-    copy_stream(input_stream, output_file)
-
-
-def read_file(file_path: str, mode: str = "r", encoding: str = "utf-8") -> str | dict | None:
-    """Reads content from a file."""
-    try:
-        if mode == "json":
-            with open(file_path, "r", encoding=encoding) as f:
-                return json.load(f)
-        else:
-            with open(file_path, mode, encoding=encoding) as f:
-                return f.read()
-    except Exception as e:
-        print(f"Error reading file: {e}")
-        return None
-
-
-def write_file(file_path: str, data: str | dict, mode: str = "w", encoding: str = "utf-8", indent: int = 4):
-    """Writes content to a file. If data is a dict, it will be saved as JSON."""
-    try:
-        if isinstance(data, dict):
-            with open(file_path, "w", encoding=encoding) as f:
-                json.dump(data, f, ensure_ascii=False, indent=indent)
-        else:
-            with open(file_path, mode, encoding=encoding) as f:
-                f.write(data)
-        print(f"File successfully saved to: {file_path}")
-    except Exception as e:
-        print(f"Error saving file: {e}")
