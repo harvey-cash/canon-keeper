@@ -53,6 +53,34 @@ def load_key(message: str = "Select an API key file.") -> str | None:
         return None
 
 
+def load_video() -> tuple[io.BytesIO | None, str | None]:
+    print("Select a video file.")
+    video_path = filedialog.askopenfilename(
+        title="Select Video File",
+        filetypes=[
+            ("Video files", "*.mp4 *.avi *.mov *.mkv *.wmv *.flv"),
+            ("All files", "*.*"),
+        ],
+    )
+    if not video_path:
+        print("No video file selected.")
+        return None, None
+
+    print(f"Video file selected: {video_path}. Reading file...")
+    return read_video_file(video_path), video_path
+
+
+def read_video_file(video_path: str) -> io.BytesIO | None:
+    """Reads the video file from the given path into a BytesIO object."""
+    try:
+        with open(video_path, "rb") as f_video:
+            video_data_bytesio = io.BytesIO(f_video.read())
+        return video_data_bytesio
+    except Exception as e:
+        print(f"Error reading video file: {e}")
+        return None
+
+
 def load_audio() -> io.BytesIO | None:
     print("Select an MP3 audio file.")
     audio_path = filedialog.askopenfilename(
@@ -75,6 +103,30 @@ def read_audio_file(audio_path: str) -> io.BytesIO | None:
         return audio_data_bytesio
     except Exception as e:
         print(f"Error reading audio file: {e}")
+        return None
+
+
+def save_audio(audio_data: io.BytesIO, initial_file: str = "output.mp3") -> str | None:
+    """Saves the audio data to a file."""
+    print("Select where to save the MP3 audio.")
+    save_path = filedialog.asksaveasfilename(
+        title="Save MP3 Audio As",
+        defaultextension=".mp3",
+        initialfile=initial_file,
+        filetypes=[("MP3 audio files", "*.mp3"), ("All files", "*.*")],
+    )
+
+    if not save_path:
+        print("No save location selected.")
+        return None
+
+    try:
+        with open(save_path, "wb") as f_audio:
+            copy_stream(audio_data, f_audio)
+        print(f"Audio successfully saved to: {save_path}")
+        return save_path
+    except Exception as e:
+        print(f"Error saving audio file: {e}")
         return None
 
 

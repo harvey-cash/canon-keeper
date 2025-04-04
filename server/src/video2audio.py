@@ -2,14 +2,13 @@ import io
 import os
 import shutil
 import tempfile
-import tkinter as tk
-import typing
-from tkinter import filedialog
 
 import moviepy as mp
 
+from . import file_io
 
-def video_to_mp3(video_file: typing.BinaryIO) -> io.BytesIO:
+
+def video_to_mp3(video_data: io.BytesIO) -> io.BytesIO | None:
     """
     Extracts audio from a video file object and returns it as an MP3 BytesIO object.
 
@@ -19,7 +18,7 @@ def video_to_mp3(video_file: typing.BinaryIO) -> io.BytesIO:
         video_file: A binary file-like object for the input video.
 
     Returns:
-        An io.BytesIO object with MP3 data, or empty if no audio exists.
+        An io.BytesIO object with MP3 data, or None if no audio exists.
     """
     temp_video_path = None
     temp_mp3_path = None
@@ -30,7 +29,7 @@ def video_to_mp3(video_file: typing.BinaryIO) -> io.BytesIO:
         with tempfile.NamedTemporaryFile(
             delete=False, suffix=".tmpvideo"
         ) as temp_video:
-            shutil.copyfileobj(video_file, temp_video)
+            shutil.copyfileobj(video_data, temp_video)
             temp_video_path = temp_video.name
 
         # Define path for the temporary MP3 output
@@ -64,87 +63,41 @@ def video_to_mp3(video_file: typing.BinaryIO) -> io.BytesIO:
                 os.remove(temp_mp3_path)
             except OSError:
                 pass  # Ignore cleanup errors
+
+    # Check if the conversion actually produced any audio data
+    mp3_data.seek(0, io.SEEK_END)  # Go to the end to check size
+    mp3_size = mp3_data.tell()
+    mp3_data.seek(0)  # Rewind stream to the beginning
+
+    if mp3_size <= 0:
+        print("No audio data found in the video file.")
+        return None
+
+    print("Conversion successful")
     return mp3_data
 
 
-# --- Main Execution Block ---
+def _main():
+    try:
+        file_io.prepare_file_dialogs()
+
+        video_data, input_video_path = file_io.load_video()
+        if not video_data:
+            return
+
+        audio_data = video_to_mp3(video_data)
+        if not audio_data:
+            return
+
+        video_basename = os.path.basename(input_video_path)
+        video_name_without_ext = os.path.splitext(video_basename)[0]
+        default_mp3_name = f"{video_name_without_ext}.mp3"
+
+        file_io.save_audio(audio_data, default_mp3_name)
+
+    except Exception as e:
+        print(f"{e}")
+
 
 if __name__ == "__main__":
-    # This code runs only when the script is executed directly
-
-    # Initialize Tkinter and hide the root window
-    root = tk.Tk()
-    root.withdraw()  # We only want the dialogs, not a full GUI window
-
-    print("Opening file dialog to select video...")
-
-    # Define allowed video file types for the 'Open' dialog
-    video_file_types = [
-        ("Video files", "*.mp4 *.avi *.mov *.mkv *.wmv *.flv"),
-        ("All files", "*.*"),
-    ]
-
-    # Ask the user to select an input video file
-    input_video_path = filedialog.askopenfilename(
-        title="Select Video File to Convert", filetypes=video_file_types
-    )
-
-    # Proceed only if the user selected a file (didn't cancel)
-    if input_video_path:
-        print(f"Selected video: {input_video_path}")
-        print("Starting conversion...")
-        try:
-            # Open the selected video file in binary read mode ('rb')
-            # The 'with' statement ensures the file is closed automatically
-            with open(input_video_path, "rb") as video_file_object:
-                # Call the conversion function, passing the file object
-                mp3_data_stream = video_to_mp3(video_file_object)  # Returns io.BytesIO
-
-            # Check if the conversion actually produced any audio data
-            mp3_data_stream.seek(0, io.SEEK_END)  # Go to the end to check size
-            mp3_size = mp3_data_stream.tell()
-            mp3_data_stream.seek(0)  # Rewind stream to the beginning
-
-            if mp3_size > 0:
-                print("Conversion successful. Opening file dialog to save MP3...")
-
-                # Suggest a default filename for the MP3 based on the video name
-                video_basename = os.path.basename(input_video_path)
-                video_name_without_ext = os.path.splitext(video_basename)[0]
-                default_mp3_name = f"{video_name_without_ext}.mp3"
-
-                mp3_file_type = [("MP3 audio file", "*.mp3")]
-
-                # Ask the user where to save the resulting MP3 file
-                output_mp3_path = filedialog.asksaveasfilename(
-                    title="Save MP3 Audio As",
-                    initialfile=default_mp3_name,
-                    defaultextension=".mp3",
-                    filetypes=mp3_file_type,
-                )
-
-                # Proceed only if the user chose a save location (didn't cancel)
-                if output_mp3_path:
-                    try:
-                        with open(output_mp3_path, "wb") as output_file:
-                            shutil.copyfileobj(mp3_data_stream, output_file)
-                        print(f"Successfully saved MP3 to: {output_mp3_path}")
-                    except Exception as save_error:
-                        print(f"Error saving MP3 file: {save_error}")
-                else:
-                    print("Save operation cancelled by user.")
-
-            else:
-                print("No audio data was found or extracted from the video.")
-
-        except FileNotFoundError:
-            print("Error: The selected video file was not found.")
-        except Exception as conversion_error:
-            print(
-                f"An error occurred during the conversion process: {conversion_error}"
-            )
-
-    else:
-        print("No video file was selected. Operation cancelled.")
-
-    print("Script finished.")
+    _main()

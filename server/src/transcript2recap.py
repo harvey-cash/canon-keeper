@@ -5,8 +5,8 @@ from . import file_io
 
 def _generate_text(api_key: str, model: str, contents: str) -> str:
     try:
-        client = genai.Client(api_key)
-        response = client.models.generate_content(model, contents)
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(model=model, contents=contents)
         return response.text
     except Exception as e:
         print(f"Error during GenAI API call: {e}")

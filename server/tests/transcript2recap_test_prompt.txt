@@ -1,0 +1,5 @@
+Re-write this transcript into an extremely detailed and thorough recap. Fix spelling mistakes, lack of grammar and punctuation, and incorrectly transcribed sections.
+
+Stick to chronological order of the transcript and be as faithful as possible to the details. Do not skip anything.
+
+Format as a plaintext markdown document with sections (use heading one '#' for each section heading, do not provide a title). Adopt an engaging yet easy-reading creative writing style. Do NOT output any preamble (e.g. do not begin with "okay, here is the recap").
