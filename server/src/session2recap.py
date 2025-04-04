@@ -13,7 +13,7 @@ def _generate_text(api_key: str, model: str, contents: str) -> str:
         return None
 
 
-def transcript_to_recap(transcript: str, api_key: str, prompt: str) -> str:
+def session_to_recap(transcript: str, api_key: str, prompt: str) -> str:
     """Generates a recap of the provided transcript using GenAI."""
     print("Generating recap with Gemini...")
     contents = transcript + "\n\n---\n\n" + prompt
@@ -45,7 +45,7 @@ def main():
         if not recap_prompt:
             return
 
-        recap = transcript_to_recap(transcript, api_key, recap_prompt)
+        recap = session_to_recap(transcript, api_key, recap_prompt)
         if not recap:
             return
 

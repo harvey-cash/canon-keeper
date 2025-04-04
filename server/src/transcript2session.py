@@ -7,6 +7,16 @@ from . import file_io
 from .identify_speakers import identify_speakers
 
 
+def transcript_to_session(audio_data: io.BytesIO, transcript: dict) -> str:
+    """Converts a JSON transcript with unlabeled speakers
+    to a readable text file with names."""
+    print("\n--- Starting Speaker Identification ---")
+    speaker_map: dict = identify_speakers(audio_data, transcript["utterances"])
+    print("--- Speaker Identification Finished ---")
+
+    return _format_transcript_with_names(transcript, speaker_map)
+
+
 def _format_transcript_with_names(
     transcript: aai.Transcript, speaker_name_map: typing.Dict[str, str]
 ) -> str:
@@ -28,10 +38,7 @@ def _format_transcript_with_names(
     return "\n".join(formatted_lines).strip()
 
 
-# --- Main Execution Block ---
-
-
-def main():
+def _main():
     try:
         file_io.prepare_file_dialogs()
 
@@ -43,11 +50,7 @@ def main():
         if not transcript:
             return
 
-        print("\n--- Starting Speaker Identification ---")
-        speaker_map: dict = identify_speakers(audio_data, transcript["utterances"])
-        print("--- Speaker Identification Finished ---")
-
-        final_transcript_text = _format_transcript_with_names(transcript, speaker_map)
+        final_transcript_text = transcript_to_session(audio_data, transcript)
 
         file_io.save_file("Transcript", "txt", final_transcript_text)
 
@@ -56,4 +59,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    _main()

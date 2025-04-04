@@ -1,14 +1,11 @@
 import io
-import typing
 
 import assemblyai as aai
 
 from . import file_io
 
 
-def mp3_to_transcript(
-    audio_data: io.BytesIO, api_key: str
-) -> typing.Optional[aai.Transcript]:
+def audio_to_transcript(audio_data: io.BytesIO, api_key: str) -> dict | None:
     """
     Transcribes MP3 audio data using AssemblyAI.
 
@@ -42,7 +39,7 @@ def mp3_to_transcript(
         return None
 
     print("Transcription API call successful.")
-    return transcript
+    return transcript.json_response
 
 
 def main():
@@ -57,15 +54,11 @@ def main():
         if not api_key:
             return
 
-        transcript_object: aai.Transcript | None = mp3_to_transcript(
-            audio_data, api_key
-        )
-        if not transcript_object:
+        transcript = audio_to_transcript(audio_data, api_key)
+        if not transcript:
             return
 
-        transcript_dict = transcript_object.json_response
-
-        file_io.save_file("Transcript", "json", transcript_dict)
+        file_io.save_file("Transcript", "json", transcript)
 
     except Exception as e:
         print(f"Exception: {e}")
