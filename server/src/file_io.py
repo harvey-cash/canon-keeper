@@ -11,6 +11,27 @@ def prepare_file_dialogs():
     root.withdraw()  # Hide the root window
 
 
+def load_text_file(message: str = "Select a text file.") -> str | None:
+    """Loads a text file and returns its content as a string."""
+    print(message)
+    text_path = filedialog.askopenfilename(
+        title=message,
+        filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
+    )
+    if not text_path:
+        print("No text file selected.")
+        return None
+
+    print(f"Text file selected: {text_path}. Reading file...")
+    try:
+        with open(text_path, encoding="utf-8") as f:
+            data = f.read()
+        return data
+    except Exception as e:
+        print(f"Error reading text file: {e}")
+        return None
+
+
 def load_key(message: str = "Select an API key file.") -> str | None:
     """Loads the API key from a file."""
     print(message)

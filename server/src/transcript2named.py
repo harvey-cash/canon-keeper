@@ -32,23 +32,27 @@ def _format_transcript_with_names(
 
 
 def main():
-    file_io.prepare_file_dialogs()
+    try:
+        file_io.prepare_file_dialogs()
 
-    audio_data: io.BytesIO = file_io.load_audio()
-    if not audio_data:
-        return
+        audio_data: io.BytesIO = file_io.load_audio()
+        if not audio_data:
+            return
 
-    transcript = file_io.load_json("Select AssemblyAI Transcript JSON")
-    if not transcript:
-        return
+        transcript = file_io.load_json("Select AssemblyAI Transcript JSON")
+        if not transcript:
+            return
 
-    print("\n--- Starting Speaker Identification ---")
-    speaker_map: dict = identify_speakers(audio_data, transcript["utterances"])
-    print("--- Speaker Identification Finished ---")
+        print("\n--- Starting Speaker Identification ---")
+        speaker_map: dict = identify_speakers(audio_data, transcript["utterances"])
+        print("--- Speaker Identification Finished ---")
 
-    final_transcript_text = _format_transcript_with_names(transcript, speaker_map)
+        final_transcript_text = _format_transcript_with_names(transcript, speaker_map)
 
-    file_io.save_file("Transcript", "txt", final_transcript_text)
+        file_io.save_file("Transcript", "txt", final_transcript_text)
+
+    except Exception as e:
+        print(f"Exception: {e}")
 
 
 if __name__ == "__main__":
