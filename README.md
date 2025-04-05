@@ -35,7 +35,7 @@ It extracts audio, transcribes, generates recaps, and generally helps players an
         npm install
     ```
 
-## Usage
+## Development
 
 - Launch backend server:
     ```bash
@@ -47,6 +47,13 @@ It extracts audio, transcribes, generates recaps, and generally helps players an
     cd client
     npm run dev
     ```
+
+## Build
+
+```bash
+npm run build
+```
+Should create a `CanonKeeper.exe` at `server/dist`
 
 ## Tech Stack
 

@@ -7,7 +7,10 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "postbuild": "npm run clearwebcontent && npm run copywebcontent",
+    "clearwebcontent": "rimraf ../server/web_content/* --glob",
+    "copywebcontent": "cpy dist/**/* ../server/web_content/ --parents --flat=false"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.0",
@@ -23,10 +26,12 @@
     "@typescript-eslint/eslint-plugin": "^8.29.0",
     "@typescript-eslint/parser": "^8.29.0",
     "@vitejs/plugin-react": "^4.3.4",
+    "cpy-cli": "^5.0.0",
     "eslint": "^9.21.0",
     "eslint-plugin-react-hooks": "^5.1.0",
     "eslint-plugin-react-refresh": "^0.4.19",
     "globals": "^15.15.0",
+    "rimraf": "^6.0.1",
     "typescript": "^5.8.2",
     "vite": "^6.2.0"
   }

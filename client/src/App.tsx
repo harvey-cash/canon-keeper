@@ -91,9 +91,10 @@ function App() {
   return (
     // The container inherits the background from index.css (dark/light mode)
     <div className={`container mx-auto p-4 max-w-3xl ${defaultTextColor}`}>
-      <h1 className="text-3xl font-bold mb-6 text-center text-white"> {/* Changed text-gray-800 to text-white */}
-        Video Recap Generator
+      <h1 className="text-3xl font-bold mb-6 text-center text-white">
+        Canon Keeper
       </h1>
+      <h2 className="text-3xl font-bold mb-6 text-center text-white">Video Recap Generator</h2>
 
       {/* Form has a white background */}
       <form onSubmit={handleSubmit} className="space-y-6 bg-white p-6 rounded-lg shadow-md">
