@@ -23,11 +23,29 @@ It extracts audio, transcribes, generates recaps, and generally helps players an
 
 - Install [ffmpeg: v2025-03-31-git-35c091f4b7](https://www.gyan.dev/ffmpeg/builds/) (Once extracted, add /bin folder to system PATH environment variable)
 - Install Node Version Manager [NVM](https://github.com/coreybutler/nvm-windows) for managing Node.js versions.
-  - Install NodeJS:
+    - Install NodeJS:
 
     ```bash
         nvm install lts
         nvm use lts
+    ```
+    - Install package dependencies:
+    ```bash
+        cd client
+        npm install
+    ```
+
+## Usage
+
+- Launch backend server:
+    ```bash
+    cd server
+    uvicorn main:app
+    ```
+- Launch frontend server:
+    ```bash
+    cd client
+    npm run dev
     ```
 
 ## Tech Stack
