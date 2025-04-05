@@ -1,5 +1,5 @@
 // src/App.tsx
-import React, { useState, ChangeEvent, FormEvent } from 'react';
+import { useState, ChangeEvent, FormEvent } from 'react';
 
 // Define the expected structure of the successful API response
 interface ApiResult {
