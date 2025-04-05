@@ -1,8 +1,32 @@
 import io
 import json
+import os
+import sys
 import tkinter as tk
 import typing
 from tkinter import filedialog
+
+
+def get_application_path():
+    """Gets the base path for the application, whether running as script or frozen."""
+    if getattr(sys, "frozen", False):
+        # If the application is run as a bundle/frozen executable, the path
+        # is obtained via sys.executable.
+        application_path = os.path.dirname(sys.executable)
+    else:
+        # If the application is run as a normal Python script, the path
+        # is obtained via __file__. Note that __file__ might not be
+        # available in all contexts (e.g., interactive interpreter),
+        # but it works for typical script execution.
+        try:
+            application_path = os.path.dirname(os.path.abspath(__file__))
+        except NameError:
+            # Fallback if __file__ is not defined (e.g., in some REPLs)
+            application_path = os.path.abspath(
+                "."
+            )  # Use current working directory as fallback
+
+    return application_path
 
 
 def prepare_file_dialogs():

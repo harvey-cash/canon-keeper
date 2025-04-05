@@ -1,1 +1,1 @@
-Summarise this episode recap in a few paragraphs. Do not output any preamble.
+Summarise this episode recap in a few paragraphs. Do not preamble.

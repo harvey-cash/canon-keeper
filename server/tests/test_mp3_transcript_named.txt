@@ -1,7 +1,7 @@
 Deep:
 This is a short audio file. Its only purpose is to test the transcription function.
 
-Squeaky:
+Silly:
 And now I'm going to talk in a different voice and hope that this comes up as a different speaker.
 
 Deep:

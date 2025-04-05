@@ -2,12 +2,6 @@ Re-write this transcript of a session of a D&D campaign into an extremely detail
 
 Stick to chronological order of the transcript and be as faithful as possible to the details. Do not skip anything.
 
-The player character's names are: Ermine (she / her), Garrik (he/him), Causticus (she/her), Joseph (a.k.a Acolyte) (he/him), Caelen (he/him) and Grace (she/her).
+Do not make reference to the player's real names (only their characters), or to the tabletop D&D nature of the session. Never mention the existence of a "Game Master". Stick to a detailed in-universe perspective re-telling. Do not include repeated sections where the game master is only summarising previously covered events.
 
-The NPCs include: Security Officer Jenson (he/him), Ermine's bodyguard Eesha (she/her). The Captain Zhan Douji (she/her). Administrative leader Ulric (he/him), Cyborg support Fate (she/her), and the mysterious machine Primus Rex (he/him). Tribal scout leader Tanath (he/him) and daughter Triss (she/her), and their Queen Carolina the Undying (she/her). The Empire Diplomat Sandro Destroci (he/him), his bodyguard Sergeant Gary Gallagher (he/him).
-
-The mineral Garrik seeks is Neutronium. The ship is Valkyrie, its mission is to the Trappist-1 star system. The earth-like planet of interest is Trappist-1 4. The native people’s name for the planet is Graft. The moons are Lyria and Vexis. The tribespeople are the Basin Clan and their settlement is Drybridge.
-
-Do not make reference to the player's real names (only their characters), or to the tabletop D&D nature of the session. This is hard sci fi - no magic - so any transcription of “spells” or “magic” used by the players should be interpreted instead as advanced technology. Never mention the existence of a "Game Master". Stick to a detailed in-universe perspective re-telling. Do not include repeated sections where the game master is only summarising previously covered events.
-
-Format as a plaintext markdown document with sections (use heading one '#' for each section heading, do not provide a title). Adopt an engaging yet easy-reading creative writing style. Do NOT output any preamble (e.g. do not begin with "okay, here is the recap").
+Format as a plaintext markdown document with sections (use heading one '#' for each section heading, do not provide a title). Adopt an engaging yet easy-reading creative writing style. Do not preamble.

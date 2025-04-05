@@ -1,5 +1,4 @@
 import io
-import os
 import typing
 
 from pydub import AudioSegment
@@ -13,6 +12,7 @@ def _group_utterances_by_speaker(
 ) -> typing.Dict[str, typing.List[typing.Any]]:
     """Groups utterances by speaker label."""
     grouped = {}
+
     for utterance in utterances:
         speaker = utterance["speaker"]
 
@@ -38,13 +38,11 @@ def _find_longest_utterance(
     return max(utterances, key=lambda u: len(u["text"]), default=None)
 
 
-def _extract_and_save_snippets(
+def _extract_snippets(
     audio_data: io.BytesIO,
     longest_utterances: typing.Dict[str, typing.Any],
-    save_dir: str,
-) -> typing.Dict[str, str]:
+) -> typing.Dict[str, typing.Dict[str, typing.Any]]:
     """Extracts audio snippets for longest utterances and saves them."""
-    speaker_files = {}
     print("Loading full audio for slicing...")
     try:
         audio_data.seek(0)  # Ensure stream is at the beginning
@@ -63,11 +61,12 @@ def _extract_and_save_snippets(
         print(f"Error loading audio with pydub: {e}")
         return {}
 
+    speaker_snippets = {}
+
     print("Extracting and saving snippets...")
     for speaker, utterance in longest_utterances.items():
         start_ms = utterance["start"]
         end_ms = utterance["end"]
-        text_preview = utterance["text"][:30]  # First 30 chars
 
         if end_ms <= start_ms:
             print(f"{speaker}: invalid start/end times ({start_ms}-{end_ms}).")
@@ -75,66 +74,25 @@ def _extract_and_save_snippets(
 
         try:
             snippet = full_audio[start_ms:end_ms]
-            safe_speaker_label = file_io.sanitize_filename(speaker)
+            buffer = io.BytesIO()
+            snippet.export(buffer, format="mp3")
+            buffer.seek(0)
+            speaker_snippets[speaker] = {"text": utterance["text"], "audio": buffer}
 
-            filename = os.path.join(
-                save_dir,
-                f"speaker_{safe_speaker_label}_utterance_{start_ms}-{end_ms}.mp3",
-            )
-            print(f"Saving snippet for {speaker} ({text_preview}...)")
-            snippet.export(filename, format="mp3")
-            speaker_files[speaker] = filename
         except Exception as e:
             print(f"  Error exporting snippet for Speaker {speaker}: {e}")
 
-    return speaker_files
-
-
-def _prompt_for_speaker_names(
-    speaker_files: typing.Dict[str, str],
-) -> typing.Dict[str, str]:
-    """Prompts user to identify speakers based on saved snippets."""
-    speaker_name_map = {}
-    print("\nPlease listen to the saved audio snippets to identify speakers.")
-
-    for speaker, filename in speaker_files.items():
-        print(f"\nSnippet for Speaker {speaker} saved as: {os.path.basename(filename)}")
-        while True:
-            try:
-                name = input(f"Enter the name for Speaker {speaker}: ").strip()
-                if name:  # Ensure some name is entered
-                    speaker_name_map[speaker] = name
-                    break
-                else:
-                    print("Please enter a name.")
-
-            except EOFError:
-                print("\nInput interrupted. Exiting identification.")
-                return speaker_name_map
-            except KeyboardInterrupt:
-                print("\nIdentification cancelled by user.")
-                return speaker_name_map
-
-    # Delete the audio snippets after use
-    for filename in speaker_files.values():
-        try:
-            os.remove(filename)
-            print(f"Deleted snippet file: {filename}")
-        except Exception as e:
-            print(f"Error deleting snippet file {filename}: {e}")
-
-    return speaker_name_map
+    return speaker_snippets
 
 
 # --- Main Function ---
 
 
-def identify_speakers(
+def transcript_to_snippets(
     audio_data: io.BytesIO, utterances: typing.List[typing.Any]
-) -> typing.Dict[str, str]:
+) -> typing.Dict[str, typing.Dict[str, typing.Any]]:
     """
-    Identifies speakers by extracting longest utterances, saving snippets,
-    and prompting the user for names.
+    Gets audio snippets for the longest utterances of each speaker in the transcript.
 
     Args:
         audio_data: An io.BytesIO object containing the full MP3 audio.
@@ -142,17 +100,16 @@ def identify_speakers(
                     each expected to have 'speaker', 'start', 'end', 'text'.
 
     Returns:
-        A dictionary mapping speaker labels (e.g., 'A') to user-provided names.
+        A dictionary mapping speaker labels (e.g., 'A') to their longest utterance
+        and the corresponding audio snippet.
     """
-    save_dir = file_io.get_save_directory("Speaker Snippets")
-    if not save_dir:
-        return {}  # User cancelled
-
+    print("Grouping utterances by speaker...")
     grouped_utterances = _group_utterances_by_speaker(utterances)
     if not grouped_utterances:
         print("No speaker utterances found in the transcript data.")
         return {}
 
+    print("Finding longest utterances...")
     longest_utterances = {
         speaker: _find_longest_utterance(speaker_utterances)
         for speaker, speaker_utterances in grouped_utterances.items()
@@ -164,22 +121,38 @@ def identify_speakers(
         print("Could not determine longest utterances for any speaker.")
         return {}
 
-    speaker_snippet_files = _extract_and_save_snippets(
-        audio_data, longest_utterances, save_dir
-    )
+    return _extract_snippets(audio_data, longest_utterances)
 
-    if not speaker_snippet_files:
-        print("Failed to create any speaker audio snippets.")
-        return {}
 
-    speaker_name_map = _prompt_for_speaker_names(speaker_snippet_files)
+def _main():
+    try:
+        file_io.prepare_file_dialogs()
 
-    print("\n--- Speaker Identification Summary ---")
-    if speaker_name_map:
-        for label, name in speaker_name_map.items():
-            print(f"  Speaker {label} identified as: {name}")
-    else:
-        print("  No speakers were identified.")
-    print("------------------------------------")
+        audio_data: io.BytesIO = file_io.load_audio()
+        if not audio_data:
+            return
 
-    return speaker_name_map
+        transcript = file_io.load_json("Select AssemblyAI Transcript JSON")
+        if not transcript:
+            return
+
+        speaker_snippets_dict = transcript_to_snippets(
+            audio_data, transcript["utterances"]
+        )
+        if not speaker_snippets_dict:
+            return
+
+        print(speaker_snippets_dict)
+
+        for speaker, speaker_dict in speaker_snippets_dict.items():
+            file_io.save_audio(
+                audio_data=speaker_dict["audio"],
+                initial_file=f"speaker_{speaker}_snippet.mp3",
+            )
+
+    except Exception as e:
+        print(f"Exception: {e}")
+
+
+if __name__ == "__main__":
+    _main()

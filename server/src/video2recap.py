@@ -3,7 +3,8 @@ import os
 from . import file_io
 from .audio2transcript import audio_to_transcript
 from .session2recap import recap_to_summary, session_to_recap
-from .transcript2session import transcript_to_session
+from .transcript2session import _prompt_for_speaker_names, transcript_to_session
+from .transcript2snippets import transcript_to_snippets
 from .video2audio import video_to_mp3
 
 
@@ -55,9 +56,29 @@ def _main():
         )
 
         print(f"Transcription complete. Raw JSON saved to {transcript_path}.")
-        print("Generating session script...")
 
-        session_script = transcript_to_session(audio_data, transcript)
+        print("Generating speaker snippets...")
+        speaker_snippets_dict = transcript_to_snippets(
+            audio_data, transcript["utterances"]
+        )
+        if not speaker_snippets_dict:
+            return
+
+        speaker_files = {}
+        for speaker, speaker_dict in speaker_snippets_dict.items():
+            file_name = file_io.save_audio(
+                audio_data=speaker_dict["audio"],
+                initial_file=f"speaker_{speaker}_snippet.mp3",
+            )
+            if file_name:
+                speaker_files[speaker] = file_name
+
+        speaker_name_map = _prompt_for_speaker_names(speaker_files)
+        if not speaker_name_map:
+            return
+
+        print("Generating session script...")
+        session_script = transcript_to_session(transcript, speaker_name_map)
         if not session_script:
             return
 
