@@ -8,30 +8,35 @@ It extracts audio, transcribes, generates recaps, and generally helps players an
 ## Requirements
 
 - Install [Python: v3.13.2](https://www.python.org/downloads/release/python-3132/)
-    - Create a virtual environment named `.venv`:
+  - Create a virtual environment named `.venv`:
 
         ```bash
         python -m venv .venv
         ```
-    - Activate it (every session)
+
+  - Activate it (every session)
 
         ```bash
         .venv\Scripts\activate
         ```
-    - Install python packages
+
+  - Install python packages
+
         ```bash
         pip install -r requirements.txt
         ```
 
 - Install [ffmpeg: v2025-03-31-git-35c091f4b7](https://www.gyan.dev/ffmpeg/builds/) (Once extracted, add /bin folder to system PATH environment variable)
 - Install Node Version Manager [NVM](https://github.com/coreybutler/nvm-windows) for managing Node.js versions.
-    - Install NodeJS:
+  - Install NodeJS:
 
     ```bash
         nvm install lts
         nvm use lts
     ```
-    - Install package dependencies:
+
+  - Install package dependencies:
+
     ```bash
         cd client
         npm install
@@ -40,11 +45,14 @@ It extracts audio, transcribes, generates recaps, and generally helps players an
 ## Development
 
 - Launch backend server:
+
     ```bash
     cd server
     uvicorn main:app
     ```
+
 - Launch frontend server:
+
     ```bash
     cd client
     npm run dev
@@ -55,32 +63,30 @@ It extracts audio, transcribes, generates recaps, and generally helps players an
 ```bash
 npm run build
 ```
+
 Should create a `CanonKeeper` folder at `server/dist` with an executable and _internal sub-folder. When `CanonKeeper.exe` is launched, it will also create a `resources` folder where the application is located.
 
 ## Tech Stack
 
 **Backend:**
 
-* **Framework:** FastAPI (High-performance ASGI web framework)
-* **Server:** Uvicorn (ASGI server to run FastAPI)
-* **File Handling:** `python-multipart` (for uploads), direct `ffmpeg` calls (for audio extraction)
-* **Environment:** Python `venv` for dependency isolation
-* **Testing:** `pytest` with `httpx` and `pytest-asyncio`
+- **Framework:** FastAPI (High-performance ASGI web framework)
+- **Server:** Uvicorn (ASGI server to run FastAPI)
+- **File Handling:** `python-multipart` (for uploads), direct `ffmpeg` calls (for audio extraction)
+- **Environment:** Python `venv` for dependency isolation
 
 **Frontend:**
 
-* **Language:** TypeScript
-* **Framework/Library:** React
-* **Build Tool / Dev Server:** Vite (Fast, modern frontend tooling)
-* **Styling:** Tailwind CSS (Utility-first CSS framework)
-* **Environment:** Node.js (LTS recommended) managed via NVM
-* **Testing:** Vitest + React Testing Library
+- **Language:** TypeScript
+- **Framework/Library:** React
+- **Build Tool / Dev Server:** Vite (Fast, modern frontend tooling)
+- **Styling:** Tailwind CSS (Utility-first CSS framework)
+- **Environment:** Node.js (LTS recommended) managed via NVM
 
 **Code Quality & Tooling:**
 
-* **Python Formatting:** Black
-* **Python Linting:** Ruff
-* **TS/JS Formatting:** Prettier
-* **TS/JS Linting:** ESLint
-* **Automation:** Pre-commit hooks (managed by `pre-commit`) to run checks before commits.
-* **CI/CD:** GitHub Actions (Linting and testing workflows)
+- **Python Formatting:** Black
+- **Python Linting:** Ruff
+- **TS/JS Formatting:** Prettier
+- **TS/JS Linting:** ESLint
+- **CI/CD:** GitHub Actions (Linting and testing workflows)

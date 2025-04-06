@@ -5,52 +5,64 @@ on:
     branches:
       - develop
       - master
-      - 'feature/**' # Matches branches like feature/new-thing, feature/auth/fix
+      - 'feature/**'
 
 jobs:
   build-windows:
     name: Build on Windows
-    runs-on: windows-latest # Use the latest Windows runner
+    runs-on: windows-latest
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4 # Checks out your code
+        uses: actions/checkout@v4
 
       - name: Set up Python 3.13
         uses: actions/setup-python@v5
         with:
-          python-version: '3.13' # Specify the major.minor version
+          python-version: '3.13'
 
-      # Although the build command is npm-based, include Python dependencies
-      # in case the build script or related tooling requires them.
-      # Skip virtual environment creation as Actions provide isolated environments.
-      - name: Install Python dependencies
-        run: pip install -r requirements.txt
-        shell: bash
+      # *** NEW STEP: Create the virtual environment ***
+      # The build_server.py script specifically looks for this directory.
+      - name: Create virtual environment
+        run: python -m venv .venv
+        shell: bash # Use bash for consistency, python -m venv works cross-platform
 
-      # NVM isn't typically needed in Actions; setup-node handles version management.
+      # *** MODIFIED STEP: Install Python dependencies INTO the venv ***
+      # Use the python executable within the created .venv to install packages.
+      # Use bash syntax for the path even on Windows runner, GitHub Actions handles it.
+      # Make sure 'pyinstaller' is included in your requirements.txt!
+      - name: Install Python dependencies into venv
+        run: ./.venv/Scripts/python -m pip install -r requirements.txt
+        shell: bash # Use bash for path consistency
+
+      # Setup Node.js (remains the same)
       - name: Set up Node.js (LTS)
         uses: actions/setup-node@v4
         with:
-          node-version: 'lts/*' # Use the latest Long Term Support version
-          cache: 'npm' # Enable caching for npm dependencies
-          cache-dependency-path: client/package-lock.json # Path to lock file relative to root
+          node-version: 'lts/*'
+          cache: 'npm'
+          cache-dependency-path: client/package-lock.json # Assuming lock file is in client
 
-      - name: Install Node.js dependencies
+      # Install Node deps (remains the same, assuming root package.json orchestrates)
+      # If the top-level package.json is the only one with dependencies:
+      # - name: Install Node.js dependencies (Root)
+      #   run: npm install
+      # If client deps are separate:
+      - name: Install Node.js dependencies (Client)
         run: npm install
-        working-directory: ./client # Run npm install inside the client directory
+        working-directory: ./client
 
-      - name: Run build script
+      # Run build script (remains the same - it will now find the .venv)
+      # This command should be run from the ROOT directory because it calls
+      # both build:client and build:server (which uses server/build_server.py)
+      - name: Run build script (Root)
         run: npm run build
-        working-directory: . # Run npm run build from the root directory
-        # Add environment variables here if the build script needs them
-        # env:
-        #   SOME_ENV_VAR: ${{ secrets.SOME_SECRET }}
+        # Ensure this runs from the repository root, not ./client
+        # working-directory: ./ # Explicitly set to root, or remove working-directory
 
-      # Optional: Upload the build artifact for inspection
-      # The README states the build output is in server/dist
+      # Upload artifact (remains the same)
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: CanonKeeper-Build-Windows
-          path: server/dist # Path to the build output folder
+          path: server/dist
