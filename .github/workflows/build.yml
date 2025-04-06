@@ -1,0 +1,68 @@
+name: Build Canon Keeper on PR
+
+on:
+  pull_request:
+    branches:
+      - develop
+      - master
+      - 'feature/**'
+
+jobs:
+  build-windows:
+    name: Build on Windows
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      # *** NEW STEP: Create the virtual environment ***
+      # The build_server.py script specifically looks for this directory.
+      - name: Create virtual environment
+        run: python -m venv .venv
+        shell: bash # Use bash for consistency, python -m venv works cross-platform
+
+      # *** MODIFIED STEP: Install Python dependencies INTO the venv ***
+      # Use the python executable within the created .venv to install packages.
+      # Use bash syntax for the path even on Windows runner, GitHub Actions handles it.
+      # Make sure 'pyinstaller' is included in your requirements.txt!
+      - name: Install Python dependencies into venv
+        run: ./.venv/Scripts/python -m pip install -r requirements.txt
+        shell: bash # Use bash for path consistency
+
+      # Setup Node.js (remains the same)
+      - name: Set up Node.js (LTS)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+          cache: 'npm'
+          cache-dependency-path: client/package-lock.json # Assuming lock file is in client
+
+      # Install Node deps (remains the same, assuming root package.json orchestrates)
+      # If the top-level package.json is the only one with dependencies:
+      # - name: Install Node.js dependencies (Root)
+      #   run: npm install
+      # If client deps are separate:
+      - name: Install Node.js dependencies (Client)
+        run: npm install
+        working-directory: ./client
+
+      # Run build script (remains the same - it will now find the .venv)
+      # This command should be run from the ROOT directory because it calls
+      # both build:client and build:server (which uses server/build_server.py)
+      - name: Run build script (Root)
+        run: npm run build
+        # Ensure this runs from the repository root, not ./client
+        # working-directory: ./ # Explicitly set to root, or remove working-directory
+
+      # Upload artifact (remains the same)
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CanonKeeper-Build-Windows
+          path: server/dist

@@ -1,0 +1,7 @@
+Re-write this transcript of a session of a D&D campaign into an extremely detailed and thorough recap. Fix spelling mistakes, lack of grammar and punctuation, and incorrectly transcribed sections using the context of the futuristic sci fi setting.
+
+Stick to chronological order of the transcript and be as faithful as possible to the details. Do not skip anything.
+
+Do not make reference to the player's real names (only their characters), or to the tabletop D&D nature of the session. Never mention the existence of a "Game Master". Stick to a detailed in-universe perspective re-telling. Do not include repeated sections where the game master is only summarising previously covered events.
+
+Format as a plaintext markdown document with sections (use heading one '#' for each section heading, do not provide a title). Adopt an engaging yet easy-reading creative writing style. Do not preamble.

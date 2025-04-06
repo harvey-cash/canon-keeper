@@ -1,0 +1,85 @@
+name: Create GitHub Release
+
+on:
+  push:
+    tags:
+      - 'v*' # Trigger workflow on tag pushes like v1.0, v2.0.1, etc.
+
+jobs:
+  build-and-release:
+    name: Build and Release
+    runs-on: windows-latest # Use the same OS as your build workflow
+
+    permissions:
+      contents: write # Needed for softprops/action-gh-release to create release/upload assets
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        # fetch-depth: 0 # Uncomment if your release process needs full Git history (e.g., for changelogs)
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Create virtual environment
+        run: python -m venv .venv
+        shell: bash
+
+      # Make sure 'pyinstaller' is included in your requirements.txt!
+      - name: Install Python dependencies into venv
+        run: ./.venv/Scripts/python -m pip install -r requirements.txt
+        shell: bash
+
+      - name: Set up Node.js (LTS)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+          cache: 'npm'
+          cache-dependency-path: client/package-lock.json # Assuming lock file is in client
+
+      # Install Client Node.js dependencies (if needed separately from root)
+      - name: Install Node.js dependencies (Client)
+        run: npm install
+        working-directory: ./client
+
+      # Run the main build script from the repository root
+      - name: Run build script (Root)
+        run: npm run build
+
+      # --- Release Steps ---
+
+      - name: Get Release Version from Tag
+        id: get_version
+        # Extracts the tag name (e.g., v1.0.0) from the GITHUB_REF (refs/tags/v1.0.0)
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $env:GITHUB_OUTPUT
+        shell: pwsh # Use PowerShell on Windows runner for GITHUB_OUTPUT
+
+      - name: Package artifact for release
+        # Creates a zip file containing the contents of server/dist
+        # Example Filename: CanonKeeper-windows-v1.0.0.zip
+        run: Compress-Archive -Path server/dist/* -DestinationPath CanonKeeper-windows-${{ steps.get_version.outputs.VERSION }}.zip
+        shell: pwsh # Use PowerShell for Compress-Archive
+
+      - name: Create GitHub Release and Upload Artifact
+        uses: softprops/action-gh-release@v2 # Use a popular action for creating releases
+        with:
+          # The files pattern to upload (our zipped artifact)
+          files: CanonKeeper-windows-${{ steps.get_version.outputs.VERSION }}.zip
+          # Use the extracted tag name for the release
+          tag_name: ${{ steps.get_version.outputs.VERSION }}
+          # Optional: Define a name for the release (defaults to tag name)
+          # name: Release ${{ steps.get_version.outputs.VERSION }}
+          # Optional: Set release as draft or pre-release
+          # draft: false
+          # prerelease: false
+          # Optional: Add release notes
+          # body: |
+          #   Release notes for version ${{ steps.get_version.outputs.VERSION }}
+          #   - Feature A
+          #   - Bugfix B
+        env:
+          # The GITHUB_TOKEN is automatically available to the workflow
+          # and has the necessary permissions due to `permissions: contents: write`
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

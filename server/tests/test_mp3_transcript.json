@@ -1,0 +1,714 @@
+{
+    "language_code": "en_us",
+    "audio_url": "https://cdn.assemblyai.com/upload/c55f977b-6830-4d60-894d-8da9b436b032",
+    "punctuate": true,
+    "format_text": true,
+    "dual_channel": false,
+    "multichannel": null,
+    "audio_channels": null,
+    "webhook_url": null,
+    "webhook_auth_header_name": null,
+    "webhook_auth_header_value": null,
+    "audio_start_from": null,
+    "audio_end_at": null,
+    "word_boost": [],
+    "boost_param": null,
+    "filter_profanity": false,
+    "redact_pii": false,
+    "redact_pii_audio": false,
+    "redact_pii_audio_quality": null,
+    "redact_pii_policies": null,
+    "redact_pii_sub": null,
+    "speaker_labels": true,
+    "speakers_expected": null,
+    "content_safety": false,
+    "content_safety_confidence": null,
+    "iab_categories": false,
+    "custom_spelling": null,
+    "disfluencies": false,
+    "sentiment_analysis": false,
+    "auto_chapters": false,
+    "entity_detection": false,
+    "summarization": false,
+    "summary_model": null,
+    "summary_type": null,
+    "auto_highlights": false,
+    "language_detection": false,
+    "language_confidence_threshold": null,
+    "language_confidence": null,
+    "speech_threshold": null,
+    "speech_model": null,
+    "id": "5cfe17bb-f2cb-4b71-9e5a-13ed818ab5c6",
+    "status": "completed",
+    "error": null,
+    "text": "This is a short audio file. Its only purpose is to test the transcription function. And now I'm going to talk in a different voice and hope that this comes up as a different speaker. Thank you for that.",
+    "words": [
+        {
+            "text": "This",
+            "start": 480,
+            "end": 592,
+            "confidence": 0.99298,
+            "speaker": "A",
+            "channel": null
+        },
+        {
+            "text": "is",
+            "start": 592,
+            "end": 728,
+            "confidence": 0.99966,
+            "speaker": "A",
+            "channel": null
+        },
+        {
+            "text": "a",
+            "start": 736,
+            "end": 872,
+            "confidence": 0.99993,
+            "speaker": "A",
+            "channel": null
+        },
+        {
+            "text": "short",
+            "start": 896,
+            "end": 1128,
+            "confidence": 0.99997,
+            "speaker": "A",
+            "channel": null
+        },
+        {
+            "text": "audio",
+            "start": 1184,
+            "end": 1576,
+            "confidence": 0.73107,
+            "speaker": "A",
+            "channel": null
+        },
+        {
+            "text": "file.",
+            "start": 1608,
+            "end": 2200,
+            "confidence": 0.47773,
+            "speaker": "A",
+            "channel": null
+        },
+        {
+            "text": "Its",
+            "start": 2280,
+            "end": 2568,
+            "confidence": 0.98496,
+            "speaker": "A",
+            "channel": null
+        },
+        {
+            "text": "only",
+            "start": 2624,
+            "end": 2840,
+            "confidence": 0.99998,
+            "speaker": "A",
+            "channel": null
+        },
+        {
+            "text": "purpose",
+            "start": 2880,
+            "end": 3400,
+            "confidence": 0.82669,
+            "speaker": "A",
+            "channel": null
+        },
+        {
+            "text": "is",
+            "start": 3480,
+            "end": 3768,
+            "confidence": 0.99987,
+            "speaker": "A",
+            "channel": null
+        },
+        {
+            "text": "to",
+            "start": 3824,
+            "end": 4136,
+            "confidence": 0.99988,
+            "speaker": "A",
+            "channel": null
+        },
+        {
+            "text": "test",
+            "start": 4208,
+            "end": 4488,
+            "confidence": 0.99998,
+            "speaker": "A",
+            "channel": null
+        },
+        {
+            "text": "the",
+            "start": 4544,
+            "end": 4712,
+            "confidence": 0.99985,
+            "speaker": "A",
+            "channel": null
+        },
+        {
+            "text": "transcription",
+            "start": 4736,
+            "end": 5352,
+            "confidence": 0.99589,
+            "speaker": "A",
+            "channel": null
+        },
+        {
+            "text": "function.",
+            "start": 5416,
+            "end": 6140,
+            "confidence": 0.9987,
+            "speaker": "A",
+            "channel": null
+        },
+        {
+            "text": "And",
+            "start": 6720,
+            "end": 7080,
+            "confidence": 0.95981,
+            "speaker": "B",
+            "channel": null
+        },
+        {
+            "text": "now",
+            "start": 7120,
+            "end": 7368,
+            "confidence": 0.99854,
+            "speaker": "B",
+            "channel": null
+        },
+        {
+            "text": "I'm",
+            "start": 7424,
+            "end": 7608,
+            "confidence": 0.99839,
+            "speaker": "B",
+            "channel": null
+        },
+        {
+            "text": "going",
+            "start": 7624,
+            "end": 7752,
+            "confidence": 0.93581,
+            "speaker": "B",
+            "channel": null
+        },
+        {
+            "text": "to",
+            "start": 7776,
+            "end": 7960,
+            "confidence": 0.99979,
+            "speaker": "B",
+            "channel": null
+        },
+        {
+            "text": "talk",
+            "start": 8000,
+            "end": 8200,
+            "confidence": 0.99992,
+            "speaker": "B",
+            "channel": null
+        },
+        {
+            "text": "in",
+            "start": 8240,
+            "end": 8392,
+            "confidence": 0.99843,
+            "speaker": "B",
+            "channel": null
+        },
+        {
+            "text": "a",
+            "start": 8416,
+            "end": 8552,
+            "confidence": 0.99925,
+            "speaker": "B",
+            "channel": null
+        },
+        {
+            "text": "different",
+            "start": 8576,
+            "end": 8904,
+            "confidence": 0.99994,
+            "speaker": "B",
+            "channel": null
+        },
+        {
+            "text": "voice",
+            "start": 8992,
+            "end": 9400,
+            "confidence": 0.99903,
+            "speaker": "B",
+            "channel": null
+        },
+        {
+            "text": "and",
+            "start": 9480,
+            "end": 9768,
+            "confidence": 0.99277,
+            "speaker": "B",
+            "channel": null
+        },
+        {
+            "text": "hope",
+            "start": 9824,
+            "end": 10088,
+            "confidence": 0.99884,
+            "speaker": "B",
+            "channel": null
+        },
+        {
+            "text": "that",
+            "start": 10144,
+            "end": 10312,
+            "confidence": 0.99814,
+            "speaker": "B",
+            "channel": null
+        },
+        {
+            "text": "this",
+            "start": 10336,
+            "end": 10568,
+            "confidence": 0.99906,
+            "speaker": "B",
+            "channel": null
+        },
+        {
+            "text": "comes",
+            "start": 10624,
+            "end": 10840,
+            "confidence": 0.99964,
+            "speaker": "B",
+            "channel": null
+        },
+        {
+            "text": "up",
+            "start": 10880,
+            "end": 11032,
+            "confidence": 0.99951,
+            "speaker": "B",
+            "channel": null
+        },
+        {
+            "text": "as",
+            "start": 11056,
+            "end": 11240,
+            "confidence": 0.99847,
+            "speaker": "B",
+            "channel": null
+        },
+        {
+            "text": "a",
+            "start": 11280,
+            "end": 11384,
+            "confidence": 0.99973,
+            "speaker": "B",
+            "channel": null
+        },
+        {
+            "text": "different",
+            "start": 11392,
+            "end": 11848,
+            "confidence": 0.99914,
+            "speaker": "B",
+            "channel": null
+        },
+        {
+            "text": "speaker.",
+            "start": 11984,
+            "end": 13020,
+            "confidence": 0.99423,
+            "speaker": "B",
+            "channel": null
+        },
+        {
+            "text": "Thank",
+            "start": 14080,
+            "end": 14456,
+            "confidence": 0.99491,
+            "speaker": "A",
+            "channel": null
+        },
+        {
+            "text": "you",
+            "start": 14488,
+            "end": 14632,
+            "confidence": 0.99981,
+            "speaker": "A",
+            "channel": null
+        },
+        {
+            "text": "for",
+            "start": 14656,
+            "end": 14792,
+            "confidence": 0.99957,
+            "speaker": "A",
+            "channel": null
+        },
+        {
+            "text": "that.",
+            "start": 14816,
+            "end": 14880,
+            "confidence": 0.9993,
+            "speaker": "A",
+            "channel": null
+        }
+    ],
+    "utterances": [
+        {
+            "text": "This is a short audio file. Its only purpose is to test the transcription function.",
+            "start": 480,
+            "end": 6140,
+            "confidence": 0.93380934,
+            "speaker": "A",
+            "channel": null,
+            "words": [
+                {
+                    "text": "This",
+                    "start": 480,
+                    "end": 592,
+                    "confidence": 0.99298,
+                    "speaker": "A",
+                    "channel": null
+                },
+                {
+                    "text": "is",
+                    "start": 592,
+                    "end": 728,
+                    "confidence": 0.99966,
+                    "speaker": "A",
+                    "channel": null
+                },
+                {
+                    "text": "a",
+                    "start": 736,
+                    "end": 872,
+                    "confidence": 0.99993,
+                    "speaker": "A",
+                    "channel": null
+                },
+                {
+                    "text": "short",
+                    "start": 896,
+                    "end": 1128,
+                    "confidence": 0.99997,
+                    "speaker": "A",
+                    "channel": null
+                },
+                {
+                    "text": "audio",
+                    "start": 1184,
+                    "end": 1576,
+                    "confidence": 0.73107,
+                    "speaker": "A",
+                    "channel": null
+                },
+                {
+                    "text": "file.",
+                    "start": 1608,
+                    "end": 2200,
+                    "confidence": 0.47773,
+                    "speaker": "A",
+                    "channel": null
+                },
+                {
+                    "text": "Its",
+                    "start": 2280,
+                    "end": 2568,
+                    "confidence": 0.98496,
+                    "speaker": "A",
+                    "channel": null
+                },
+                {
+                    "text": "only",
+                    "start": 2624,
+                    "end": 2840,
+                    "confidence": 0.99998,
+                    "speaker": "A",
+                    "channel": null
+                },
+                {
+                    "text": "purpose",
+                    "start": 2880,
+                    "end": 3400,
+                    "confidence": 0.82669,
+                    "speaker": "A",
+                    "channel": null
+                },
+                {
+                    "text": "is",
+                    "start": 3480,
+                    "end": 3768,
+                    "confidence": 0.99987,
+                    "speaker": "A",
+                    "channel": null
+                },
+                {
+                    "text": "to",
+                    "start": 3824,
+                    "end": 4136,
+                    "confidence": 0.99988,
+                    "speaker": "A",
+                    "channel": null
+                },
+                {
+                    "text": "test",
+                    "start": 4208,
+                    "end": 4488,
+                    "confidence": 0.99998,
+                    "speaker": "A",
+                    "channel": null
+                },
+                {
+                    "text": "the",
+                    "start": 4544,
+                    "end": 4712,
+                    "confidence": 0.99985,
+                    "speaker": "A",
+                    "channel": null
+                },
+                {
+                    "text": "transcription",
+                    "start": 4736,
+                    "end": 5352,
+                    "confidence": 0.99589,
+                    "speaker": "A",
+                    "channel": null
+                },
+                {
+                    "text": "function.",
+                    "start": 5416,
+                    "end": 6140,
+                    "confidence": 0.9987,
+                    "speaker": "A",
+                    "channel": null
+                }
+            ]
+        },
+        {
+            "text": "And now I'm going to talk in a different voice and hope that this comes up as a different speaker.",
+            "start": 6720,
+            "end": 13020,
+            "confidence": 0.993422,
+            "speaker": "B",
+            "channel": null,
+            "words": [
+                {
+                    "text": "And",
+                    "start": 6720,
+                    "end": 7080,
+                    "confidence": 0.95981,
+                    "speaker": "B",
+                    "channel": null
+                },
+                {
+                    "text": "now",
+                    "start": 7120,
+                    "end": 7368,
+                    "confidence": 0.99854,
+                    "speaker": "B",
+                    "channel": null
+                },
+                {
+                    "text": "I'm",
+                    "start": 7424,
+                    "end": 7608,
+                    "confidence": 0.99839,
+                    "speaker": "B",
+                    "channel": null
+                },
+                {
+                    "text": "going",
+                    "start": 7624,
+                    "end": 7752,
+                    "confidence": 0.93581,
+                    "speaker": "B",
+                    "channel": null
+                },
+                {
+                    "text": "to",
+                    "start": 7776,
+                    "end": 7960,
+                    "confidence": 0.99979,
+                    "speaker": "B",
+                    "channel": null
+                },
+                {
+                    "text": "talk",
+                    "start": 8000,
+                    "end": 8200,
+                    "confidence": 0.99992,
+                    "speaker": "B",
+                    "channel": null
+                },
+                {
+                    "text": "in",
+                    "start": 8240,
+                    "end": 8392,
+                    "confidence": 0.99843,
+                    "speaker": "B",
+                    "channel": null
+                },
+                {
+                    "text": "a",
+                    "start": 8416,
+                    "end": 8552,
+                    "confidence": 0.99925,
+                    "speaker": "B",
+                    "channel": null
+                },
+                {
+                    "text": "different",
+                    "start": 8576,
+                    "end": 8904,
+                    "confidence": 0.99994,
+                    "speaker": "B",
+                    "channel": null
+                },
+                {
+                    "text": "voice",
+                    "start": 8992,
+                    "end": 9400,
+                    "confidence": 0.99903,
+                    "speaker": "B",
+                    "channel": null
+                },
+                {
+                    "text": "and",
+                    "start": 9480,
+                    "end": 9768,
+                    "confidence": 0.99277,
+                    "speaker": "B",
+                    "channel": null
+                },
+                {
+                    "text": "hope",
+                    "start": 9824,
+                    "end": 10088,
+                    "confidence": 0.99884,
+                    "speaker": "B",
+                    "channel": null
+                },
+                {
+                    "text": "that",
+                    "start": 10144,
+                    "end": 10312,
+                    "confidence": 0.99814,
+                    "speaker": "B",
+                    "channel": null
+                },
+                {
+                    "text": "this",
+                    "start": 10336,
+                    "end": 10568,
+                    "confidence": 0.99906,
+                    "speaker": "B",
+                    "channel": null
+                },
+                {
+                    "text": "comes",
+                    "start": 10624,
+                    "end": 10840,
+                    "confidence": 0.99964,
+                    "speaker": "B",
+                    "channel": null
+                },
+                {
+                    "text": "up",
+                    "start": 10880,
+                    "end": 11032,
+                    "confidence": 0.99951,
+                    "speaker": "B",
+                    "channel": null
+                },
+                {
+                    "text": "as",
+                    "start": 11056,
+                    "end": 11240,
+                    "confidence": 0.99847,
+                    "speaker": "B",
+                    "channel": null
+                },
+                {
+                    "text": "a",
+                    "start": 11280,
+                    "end": 11384,
+                    "confidence": 0.99973,
+                    "speaker": "B",
+                    "channel": null
+                },
+                {
+                    "text": "different",
+                    "start": 11392,
+                    "end": 11848,
+                    "confidence": 0.99914,
+                    "speaker": "B",
+                    "channel": null
+                },
+                {
+                    "text": "speaker.",
+                    "start": 11984,
+                    "end": 13020,
+                    "confidence": 0.99423,
+                    "speaker": "B",
+                    "channel": null
+                }
+            ]
+        },
+        {
+            "text": "Thank you for that.",
+            "start": 14080,
+            "end": 14880,
+            "confidence": 0.9983975,
+            "speaker": "A",
+            "channel": null,
+            "words": [
+                {
+                    "text": "Thank",
+                    "start": 14080,
+                    "end": 14456,
+                    "confidence": 0.99491,
+                    "speaker": "A",
+                    "channel": null
+                },
+                {
+                    "text": "you",
+                    "start": 14488,
+                    "end": 14632,
+                    "confidence": 0.99981,
+                    "speaker": "A",
+                    "channel": null
+                },
+                {
+                    "text": "for",
+                    "start": 14656,
+                    "end": 14792,
+                    "confidence": 0.99957,
+                    "speaker": "A",
+                    "channel": null
+                },
+                {
+                    "text": "that.",
+                    "start": 14816,
+                    "end": 14880,
+                    "confidence": 0.9993,
+                    "speaker": "A",
+                    "channel": null
+                }
+            ]
+        }
+    ],
+    "confidence": 0.97100437,
+    "audio_duration": 17,
+    "webhook_status_code": null,
+    "webhook_auth": false,
+    "summary": null,
+    "auto_highlights_result": null,
+    "content_safety_labels": null,
+    "iab_categories_result": null,
+    "chapters": null,
+    "sentiment_analysis_results": null,
+    "entities": null
+}
