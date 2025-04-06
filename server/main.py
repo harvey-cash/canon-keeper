@@ -7,10 +7,13 @@ import uuid
 import json
 from pathlib import Path
 from enum import Enum
-import typing # Use typing instead of types for broader compatibility
+import typing
+import re # Import regex for sanitization
+import urllib.parse # For potential URL encoding/decoding if needed
 
 import uvicorn
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile, status
+# Add Request import for debugging form data
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -28,6 +31,7 @@ from src import (
 # --- Constants and Configuration ---
 
 RESOURCE_BASE_DIR = Path(file_io.get_application_path()) / "resources"
+FILENAME_SEPARATOR = "__" # Separator between UUID and original name hint
 
 class ResourceType(Enum):
     VIDEO = "video"
@@ -46,6 +50,17 @@ for resource_type in ResourceType:
 
 # --- Helper Functions ---
 
+def _sanitize_filename_part(name_part: str) -> str:
+    """Removes potentially problematic characters for embedding in filename."""
+    # Remove typical path characters and control characters
+    name_part = re.sub(r'[\\/*?:"<>|\x00-\x1f]', '', name_part)
+    # Replace whitespace with underscores
+    name_part = re.sub(r'\s+', '_', name_part)
+    # Ensure it doesn't contain our separator
+    name_part = name_part.replace(FILENAME_SEPARATOR, '_')
+    # Limit length to avoid excessively long filenames
+    return name_part[:100] # Limit embedded part length
+
 def _get_resource_dir(resource_type: ResourceType) -> Path:
     """Gets the directory for a given resource type."""
     return RESOURCE_BASE_DIR / resource_type.value
@@ -54,33 +69,56 @@ def _generate_resource_id() -> str:
     """Generates a unique resource identifier."""
     return str(uuid.uuid4())
 
-def _get_resource_path(resource_id: str, resource_type: ResourceType) -> Path:
-    """Constructs the full path for a resource given its ID and type."""
-    # Basic sanitization to prevent path traversal
+def _get_resource_path_and_name(resource_id: str, resource_type: ResourceType) -> tuple[Path, str]:
+    """Finds the resource file path and extracts the original name hint."""
     if ".." in resource_id or "/" in resource_id or "\\" in resource_id:
         raise ValueError("Invalid resource ID format.")
-    # Look for file with any extension - simple approach for now
+
     resource_dir = _get_resource_dir(resource_type)
-    matches = list(resource_dir.glob(f"{resource_id}.*"))
+    # Use glob to find the file starting with the UUID and separator
+    matches = list(resource_dir.glob(f"{resource_id}{FILENAME_SEPARATOR}*.*"))
+
     if not matches:
+        # Fallback: Check if a file exists with *just* the UUID (old format?)
+        # This shouldn't happen with new saves, but handles potential migration
+        fallback_matches = list(resource_dir.glob(f"{resource_id}.*"))
+        if fallback_matches:
+             print(f"Warning: Found resource {resource_id} in old format. Using fallback.")
+             file_path = fallback_matches[0]
+             original_name_hint = file_path.name # Best guess is the filename itself
+             return file_path, original_name_hint
         raise FileNotFoundError(f"Resource {resource_id} of type {resource_type.value} not found.")
+
     if len(matches) > 1:
-        # This shouldn't happen with UUIDs unless there's manual file tampering
         print(f"Warning: Multiple files found for resource ID {resource_id}. Using first match: {matches[0]}")
-    return matches[0]
+
+    file_path = matches[0]
+    filename = file_path.name
+    # Extract original name hint
+    parts = filename.split(FILENAME_SEPARATOR, 1)
+    original_name_hint = filename # Default if separator not found (shouldn't happen)
+    if len(parts) > 1:
+        original_name_hint = parts[1]
+
+    return file_path, original_name_hint
+
+# Wrapper for convenience, only returns path
+def _get_resource_path(resource_id: str, resource_type: ResourceType) -> Path:
+     path, _ = _get_resource_path_and_name(resource_id, resource_type)
+     return path
 
 def _create_resource_metadata(
     resource_id: str,
-    original_name: str,
+    original_name: str, # This should now be the *actual* original name
     resource_type: ResourceType,
-    file_path: Path
+    stored_filename: str # The filename on disk (e.g., uuid__name.ext)
 ) -> dict:
     """Creates a standard dictionary representing a resource."""
     return {
-        "id": resource_id,
-        "original_name": original_name,
+        "id": resource_id, # The UUID part
+        "original_name": original_name, # The intended user-facing name
         "type": resource_type.value,
-        "filename": file_path.name, # e.g., "uuid.mp4"
+        "filename": stored_filename, # The actual name on disk
     }
 
 async def _save_file_resource(
@@ -89,56 +127,75 @@ async def _save_file_resource(
 ) -> dict:
     """Saves an uploaded file as a resource and returns its metadata."""
     resource_id = _generate_resource_id()
+    # Use the actual uploaded filename as the original name
     original_name = file.filename or f"upload_{resource_id}"
-    _, extension = os.path.splitext(original_name)
-    file_path = _get_resource_dir(resource_type) / f"{resource_id}{extension}"
+    sanitized_part = _sanitize_filename_part(Path(original_name).stem)
+    extension = Path(original_name).suffix # Includes dot, e.g. '.mp4'
+
+    # Construct the filename stored on disk
+    stored_filename = f"{resource_id}{FILENAME_SEPARATOR}{sanitized_part}{extension}"
+    file_path = _get_resource_dir(resource_type) / stored_filename
 
     try:
-        # Use async file writing if available/needed, otherwise sync is ok for FastAPI
-        # For simplicity with current file_io, using sync write within thread
         content = await file.read()
         with open(file_path, "wb") as buffer:
             buffer.write(content)
     except Exception as e:
-        print(f"Error saving file {original_name}: {e}")
+        print(f"Error saving file {original_name} as {stored_filename}: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to save uploaded file.")
     finally:
         await file.close()
 
-    return _create_resource_metadata(resource_id, original_name, resource_type, file_path)
+    # Return metadata with the actual original_name
+    return _create_resource_metadata(resource_id, original_name, resource_type, stored_filename)
 
 def _save_data_resource(
-    data: bytes | str | dict,
+    data: bytes | str | dict | io.BytesIO, # Added io.BytesIO
     resource_type: ResourceType,
-    original_name_base: str, # e.g., "video_name_transcript"
-    extension: str, # e.g., ".json"
+    input_original_name: str, # Original name of the file this was derived from
+    output_suffix: str, # Suffix to add (e.g., "_audio", "_transcript")
+    extension: str, # e.g., "mp3", "json" (without dot)
 ) -> dict:
     """Saves generated data (bytes, string, or dict) as a resource."""
     resource_id = _generate_resource_id()
+    base_name = Path(input_original_name).stem # Get base name from the input file
+    # Construct the user-facing "original name" for this generated file
+    original_name = f"{base_name}{output_suffix}.{extension}"
+
+    sanitized_part = _sanitize_filename_part(f"{base_name}{output_suffix}")
     full_extension = f".{extension.lstrip('.')}"
-    original_name = f"{original_name_base}{full_extension}"
-    file_path = _get_resource_dir(resource_type) / f"{resource_id}{full_extension}"
+
+    # Construct the filename stored on disk
+    stored_filename = f"{resource_id}{FILENAME_SEPARATOR}{sanitized_part}{full_extension}"
+    file_path = _get_resource_dir(resource_type) / stored_filename
 
     try:
-        if isinstance(data, dict):
-            file_io.write_file(str(file_path), data) # Assumes write_file handles JSON dicts
-        elif isinstance(data, str):
-            file_io.write_file(str(file_path), data) # Assumes write_file handles strings
-        elif isinstance(data, bytes):
-            with open(file_path, "wb") as f:
+        mode = "w" if isinstance(data, (str, dict)) else "wb"
+        encoding = "utf-8" if mode == "w" else None
+
+        with open(file_path, mode, encoding=encoding) as f:
+            if isinstance(data, dict):
+                json.dump(data, f, indent=4) # Save formatted JSON
+            elif isinstance(data, str):
                 f.write(data)
-        elif isinstance(data, io.BytesIO):
-             with open(file_path, "wb") as f:
-                f.write(data.getvalue())
-        else:
-             raise TypeError(f"Unsupported data type for saving: {type(data)}")
+            elif isinstance(data, bytes):
+                f.write(data)
+            elif isinstance(data, io.BytesIO):
+                 f.write(data.getvalue())
+            else:
+                 raise TypeError(f"Unsupported data type for saving: {type(data)}")
 
     except Exception as e:
-        print(f"Error saving data resource {original_name}: {e}")
+        print(f"Error saving data resource {original_name} as {stored_filename}: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to save generated resource.")
 
-    return _create_resource_metadata(resource_id, original_name, resource_type, file_path)
+    # Return metadata with the derived original_name
+    return _create_resource_metadata(resource_id, original_name, resource_type, stored_filename)
 
+# --- Load Resource Helpers (No change needed in function signature/return) ---
+# (Keep _load_resource_bytes, _load_resource_text, _load_resource_json using _get_resource_path)
+
+# ... (Keep _load_resource_bytes, _load_resource_text, _load_resource_json) ...
 def _load_resource_bytes(resource_id: str, resource_type: ResourceType) -> io.BytesIO:
     """Loads resource content as BytesIO."""
     try:
@@ -183,41 +240,31 @@ def _load_resource_json(resource_id: str, resource_type: ResourceType) -> dict:
         print(f"Error loading resource {resource_id} ({resource_type.value}): {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to load resource.")
 
+
 def _delete_resource_file(resource_id: str, resource_type: ResourceType) -> None:
     """Deletes the physical file for a resource."""
     try:
-        file_path = _get_resource_path(resource_id, resource_type)
+        # Find the specific file path to delete
+        file_path, _ = _get_resource_path_and_name(resource_id, resource_type)
         file_path.unlink() # Remove the file
+        print(f"Deleted resource file: {file_path}")
     except FileNotFoundError:
          raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Resource {resource_id} ({resource_type.value}) not found for deletion.")
     except ValueError as e: # Invalid ID format
          raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
-        print(f"Error deleting resource {resource_id} ({resource_type.value}): {e}")
-        # Don't necessarily raise 500, maybe just log that cleanup failed
-        # For now, let's report failure.
+        print(f"Error deleting resource {resource_id} ({resource_type.value}) file {file_path}: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to delete resource file.")
 
-def _get_original_name_base(resource_id: str, resource_type: ResourceType) -> str:
-    """Attempts to find the original filename base (without extension) for a resource."""
-    try:
-        path = _get_resource_path(resource_id, resource_type)
-        # A robust way requires storing metadata. Simplest: check common extensions.
-        # Or list resources and find match (inefficient).
-        # For now, just use the ID as base if original name isn't easily found.
-        # This part needs a better metadata system for accuracy.
-        # Let's return the ID for now, processing functions can override this.
-        return resource_id
-    except (FileNotFoundError, ValueError):
-        return resource_id # Fallback
+# Removed _get_original_name_base as it's no longer needed with the new approach
 
-# --- FastAPI App Creation ---
-
+# --- FastAPI App Creation (No changes needed) ---
+# ... (Keep create_server function) ...
 def create_server() -> FastAPI:
     app = FastAPI(
         title="Canon Keeper API & Web",
         description="Processes TTRPG video/audio recordings and serves the web UI.",
-        version="0.3.0", # Incremented version
+        version="0.4.0", # Incremented version
     )
     origins = [
         "http://localhost:8000",    # Backend default
@@ -243,33 +290,28 @@ def create_server() -> FastAPI:
 
 app = create_server()
 
+
 # --- API Endpoints ---
 
 # --- Resource Management Endpoints ---
 
+# POST /upload/{resource_type_str} (No change needed in signature)
+# Uses the updated _save_file_resource which handles naming
 @app.post("/upload/{resource_type_str}", status_code=status.HTTP_201_CREATED)
 async def upload_resource(resource_type_str: str, file: UploadFile = File(...)):
     """Uploads a file resource (video, audio, json, text)."""
     try:
         resource_type = ResourceType(resource_type_str)
     except ValueError:
+        valid_types = [rt.value for rt in ResourceType if rt != ResourceType.SNIPPET] # Don't allow direct snippet upload
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid resource type. Valid types are: {[rt.value for rt in ResourceType]}"
+            detail=f"Invalid resource type for upload. Valid types are: {valid_types}"
         )
 
-    # Validate based on type - crude check, could be more robust
-    content_type = file.content_type
-    if resource_type == ResourceType.VIDEO and not content_type.startswith("video/"):
-         print(f"Warning: Uploaded file for type '{resource_type.value}' has Content-Type '{content_type}'")
-         # Allow upload but warn
-         # raise HTTPException(status_code=400, detail="Invalid content type for video.")
-    if resource_type == ResourceType.AUDIO and not content_type.startswith("audio/"):
-         print(f"Warning: Uploaded file for type '{resource_type.value}' has Content-Type '{content_type}'")
-    if resource_type in [ResourceType.JSON_TRANSCRIPT, ResourceType.JSON_SPEAKER_MAP] and content_type != "application/json":
-         print(f"Warning: Uploaded file for type '{resource_type.value}' has Content-Type '{content_type}'")
-    if resource_type == ResourceType.TEXT_PROMPT and not content_type.startswith("text/"):
-         print(f"Warning: Uploaded file for type '{resource_type.value}' has Content-Type '{content_type}'")
+    content_type = file.content_type or "application/octet-stream"
+    # Add more specific checks if desired
+    print(f"Attempting upload: filename='{file.filename}', content_type='{content_type}', resource_type='{resource_type.value}'")
 
     try:
         resource_metadata = await _save_file_resource(file, resource_type)
@@ -278,7 +320,7 @@ async def upload_resource(resource_type_str: str, file: UploadFile = File(...)):
         raise e # Re-raise client/server errors during save
     except Exception as e:
         traceback.print_exc()
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"An unexpected error occurred: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"An unexpected error occurred during upload: {e}")
 
 
 @app.get("/resources")
@@ -289,29 +331,50 @@ async def list_resources():
         resource_dir = _get_resource_dir(resource_type)
         try:
             for file_path in resource_dir.iterdir():
-                if file_path.is_file():
-                    resource_id = file_path.stem # UUID without extension
-                    # Getting original name reliably needs metadata storage.
-                    # For now, use the filename as original_name placeholder.
-                    metadata = _create_resource_metadata(
-                        resource_id, file_path.name, resource_type, file_path
-                    )
-                    all_resources.append(metadata)
+                if file_path.is_file() and FILENAME_SEPARATOR in file_path.name:
+                    try:
+                        filename = file_path.name
+                        # Parse filename: uuid__original_hint.ext
+                        id_part, name_part = filename.split(FILENAME_SEPARATOR, 1)
+
+                        # Basic check if id_part looks like a UUID (optional but good)
+                        try:
+                            uuid.UUID(id_part)
+                        except ValueError:
+                             print(f"Skipping file with invalid UUID format: {filename}")
+                             continue
+
+                        # The name_part is the original name hint
+                        metadata = _create_resource_metadata(
+                            resource_id=id_part,
+                            original_name=name_part, # Use the parsed name hint as original_name
+                            resource_type=resource_type,
+                            stored_filename=filename
+                        )
+                        all_resources.append(metadata)
+                    except Exception as parse_err:
+                        print(f"Error parsing resource file {file_path}: {parse_err}")
+                elif file_path.is_file():
+                     print(f"Skipping file with unexpected format: {file_path.name}")
+
+
         except Exception as e:
             print(f"Error listing resources in {resource_dir}: {e}")
             # Continue listing other types even if one fails
+    # Sort resources perhaps by name or type
+    all_resources.sort(key=lambda x: x['original_name'])
     return all_resources
+
 
 @app.get("/download/{resource_type_str}/{resource_id}")
 async def download_resource(resource_type_str: str, resource_id: str):
     """Downloads a specific resource file."""
     try:
         resource_type = ResourceType(resource_type_str)
-        file_path = _get_resource_path(resource_id, resource_type)
-        # Use original name if possible/stored, otherwise use filename
-        # This still lacks proper original name tracking without metadata db
-        download_name = file_path.name
-        return FileResponse(path=file_path, filename=download_name)
+        # Find the file and get the original name hint for the download filename
+        file_path, original_name_hint = _get_resource_path_and_name(resource_id, resource_type)
+        # Use original name hint for the download attribute
+        return FileResponse(path=file_path, filename=original_name_hint)
     except (FileNotFoundError, ValueError) as e:
         status_code = status.HTTP_404_NOT_FOUND if isinstance(e, FileNotFoundError) else status.HTTP_400_BAD_REQUEST
         raise HTTPException(status_code=status_code, detail=str(e))
@@ -319,34 +382,43 @@ async def download_resource(resource_type_str: str, resource_id: str):
         raise e
     except Exception as e:
         traceback.print_exc()
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to prepare file for download.")
+        # Don't log benign connection reset errors from media streaming
+        if isinstance(e, ConnectionResetError):
+             print(f"Info: Connection reset during download for {resource_id}. Client likely closed connection.")
+             # Return minimal response or re-raise differently if needed, but often can be ignored
+             # raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Connection reset by client during download.") from None
+             return Response(status_code=200) # Or just let it fail silently on server if frontend handles it
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to prepare file for download: {e}")
 
 
+# DELETE /resource/{resource_type_str}/{resource_id}
+# Uses updated _delete_resource_file which uses _get_resource_path_and_name
 @app.delete("/resource/{resource_type_str}/{resource_id}", status_code=status.HTTP_200_OK)
 async def delete_resource(resource_type_str: str, resource_id: str):
-    """Deletes a specific resource."""
-    try:
-        resource_type = ResourceType(resource_type_str)
-        _delete_resource_file(resource_id, resource_type)
-        return {"message": f"Resource {resource_id} ({resource_type.value}) deleted successfully."}
-    except HTTPException as e:
-        raise e # Propagate errors from helper
-    except Exception as e:
-        traceback.print_exc()
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occurred during deletion.")
+     """Deletes a specific resource."""
+     try:
+         resource_type = ResourceType(resource_type_str)
+         _delete_resource_file(resource_id, resource_type) # This now finds the correct uuid__name.ext file
+         return {"message": f"Resource {resource_id} ({resource_type.value}) deleted successfully."}
+     except HTTPException as e:
+         raise e # Propagate errors from helper
+     except Exception as e:
+         traceback.print_exc()
+         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occurred during deletion.")
+
 
 # --- Processing Pipeline Endpoints ---
+
+# Modify processing endpoints to use the new _save_data_resource signature
 
 @app.post("/process/video_to_audio", status_code=status.HTTP_201_CREATED)
 async def process_video_to_audio(video_id: str = Form(...)):
     """Extracts audio from an uploaded video resource."""
     try:
         video_data = _load_resource_bytes(video_id, ResourceType.VIDEO)
-        # Find original name for better output naming
-        video_path = _get_resource_path(video_id, ResourceType.VIDEO)
-        original_name_base = video_path.stem # Name without extension
+        _, input_original_name = _get_resource_path_and_name(video_id, ResourceType.VIDEO)
 
-        print(f"Extracting audio from video ID: {video_id}")
+        print(f"Extracting audio from video ID: {video_id} (Original: {input_original_name})")
         audio_data: io.BytesIO | None = video2audio.video_to_mp3(video_data)
 
         if not audio_data:
@@ -356,7 +428,8 @@ async def process_video_to_audio(video_id: str = Form(...)):
         audio_metadata = _save_data_resource(
             data=audio_data,
             resource_type=ResourceType.AUDIO,
-            original_name_base=f"{original_name_base}_audio",
+            input_original_name=input_original_name, # Pass original name of input video
+            output_suffix="_audio",
             extension="mp3"
         )
         return audio_metadata
@@ -369,39 +442,72 @@ async def process_video_to_audio(video_id: str = Form(...)):
 
 @app.post("/process/audio_to_transcript", status_code=status.HTTP_201_CREATED)
 async def process_audio_to_transcript(
+    # Add request object for debugging
+    request: Request,
+    # Keep original Form definitions for validation
     audio_id: str = Form(...),
     assemblyai_api_key: str = Form(...)
 ):
     """Generates a transcript JSON from an audio resource using AssemblyAI."""
-    if not assemblyai_api_key:
+    # --- Debugging 422 ---
+    # Log exactly what FastAPI received
+    form_data = await request.form()
+    received_audio_id = form_data.get("audio_id")
+    received_key = form_data.get("assemblyai_api_key")
+    print(f"--- Transcription Request ---")
+    print(f"Received Form Data: {form_data}")
+    print(f"Parsed audio_id: {received_audio_id} (Type: {type(received_audio_id)})")
+    print(f"Parsed assemblyai_api_key: {'***' if received_key else 'None'} (Type: {type(received_key)})")
+    print(f"Endpoint expected audio_id: {audio_id}")
+    print(f"Endpoint expected assemblyai_api_key: {'***' if assemblyai_api_key else 'None'}")
+    print(f"--- End Transcription Request ---")
+    # FastAPI performs validation *after* this point if using Form(...) in signature.
+    # If the above logs show the correct data, the 422 is likely subtle validation fail.
+
+    if not assemblyai_api_key: # Redundant check, Form(...) should handle it, but safe
          raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="AssemblyAI API Key is required.")
+    if not audio_id: # Redundant check
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Audio ID is required.")
 
     try:
         audio_data = _load_resource_bytes(audio_id, ResourceType.AUDIO)
-        audio_path = _get_resource_path(audio_id, ResourceType.AUDIO)
-        original_name_base = audio_path.stem
+        _, input_original_name = _get_resource_path_and_name(audio_id, ResourceType.AUDIO)
 
-        print(f"Starting transcription for audio ID: {audio_id}")
-        # Assuming audio_to_transcript expects BytesIO and API key
+        print(f"Starting transcription for audio ID: {audio_id} (Original: {input_original_name})")
         transcript: dict | None = audio2transcript.audio_to_transcript(audio_data, assemblyai_api_key)
 
-        if not transcript:
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Transcription failed (returned None). Check API key and audio format.")
+        if transcript is None: # Check for None explicitly
+            # Try to provide more specific feedback if possible
+            # Did AssemblyAI return an error in the transcript dict?
+            print(f"Transcription call returned None for audio_id: {audio_id}")
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Transcription failed. Check AssemblyAI key, audio format/length, and AssemblyAI status.")
+        if transcript.get("error"):
+             print(f"AssemblyAI Error for {audio_id}: {transcript['error']}")
+             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Transcription Error from AssemblyAI: {transcript['error']}")
+        if not transcript.get("utterances"): # Check essential output
+             print(f"Transcription for {audio_id} completed but missing 'utterances'. Result: {transcript}")
+             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Transcription completed but output format is unexpected (missing 'utterances').")
+
 
         print("Transcription complete. Saving resource...")
         transcript_metadata = _save_data_resource(
             data=transcript,
             resource_type=ResourceType.JSON_TRANSCRIPT,
-            original_name_base=f"{original_name_base}_transcript",
+            input_original_name=input_original_name,
+            output_suffix="_transcript",
             extension="json"
         )
         return transcript_metadata
 
     except HTTPException as e:
+        # Log HTTPException details before re-raising
+        print(f"HTTPException during transcription for {audio_id}: Status={e.status_code}, Detail={e.detail}")
         raise e
     except Exception as e:
         traceback.print_exc()
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Transcription process failed: {e}")
+        # Provide more context in the error detail if possible
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Transcription process failed unexpectedly: {e}")
+
 
 @app.post("/process/transcript_to_snippets", status_code=status.HTTP_201_CREATED)
 async def process_transcript_to_snippets(
@@ -412,40 +518,40 @@ async def process_transcript_to_snippets(
     try:
         audio_data = _load_resource_bytes(audio_id, ResourceType.AUDIO)
         transcript_data = _load_resource_json(transcript_id, ResourceType.JSON_TRANSCRIPT)
-        transcript_path = _get_resource_path(transcript_id, ResourceType.JSON_TRANSCRIPT)
-        original_name_base = transcript_path.stem # e.g., video_name_transcript
+        _, audio_original_name = _get_resource_path_and_name(audio_id, ResourceType.AUDIO)
 
         utterances = transcript_data.get("utterances")
-        if utterances is None:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Transcript JSON does not contain 'utterances' key.")
-        if not isinstance(utterances, list):
-             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="'utterances' key is not a list.")
+        if utterances is None or not isinstance(utterances, list):
+             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Transcript JSON is missing or has invalid 'utterances'.")
 
-        print(f"Generating speaker snippets for transcript ID: {transcript_id}")
+        print(f"Generating speaker snippets for transcript ID: {transcript_id} (Audio: {audio_original_name})")
         speaker_snippets_dict: dict[str, dict[str, typing.Any]] = transcript2snippets.transcript_to_snippets(
             audio_data, utterances
         )
 
         if not speaker_snippets_dict:
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Snippet generation failed (returned empty dict).")
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Snippet generation failed (returned empty dict). Ensure transcript has speaker labels.")
 
         print("Snippet generation complete. Saving resources...")
         saved_snippets_metadata = {}
+        # Use audio base name for snippet naming
+        input_base_name = Path(audio_original_name).stem
+
         for speaker_label, snippet_data in speaker_snippets_dict.items():
             snippet_audio = snippet_data.get("audio")
-            if not snippet_audio or not isinstance(snippet_audio, io.BytesIO):
-                print(f"Warning: Invalid or missing audio data for speaker {speaker_label}. Skipping.")
+            if not isinstance(snippet_audio, io.BytesIO):
+                print(f"Warning: Invalid audio data for speaker {speaker_label}. Skipping.")
                 continue
 
             snippet_metadata = _save_data_resource(
                 data=snippet_audio,
                 resource_type=ResourceType.SNIPPET,
-                original_name_base=f"{original_name_base}_speaker_{speaker_label}_snippet",
-                extension="mp3" # Assuming snippets are MP3
+                input_original_name=f"{input_base_name}_speaker_{speaker_label}", # Base for output name
+                output_suffix="_snippet", # Appended to the base above
+                extension="mp3"
             )
             saved_snippets_metadata[speaker_label] = snippet_metadata
 
-        # Return a map from speaker label (A, B, ...) to their saved snippet metadata
         return saved_snippets_metadata
 
     except HTTPException as e:
@@ -464,25 +570,23 @@ async def process_transcript_to_session(
     try:
         transcript_data = _load_resource_json(transcript_id, ResourceType.JSON_TRANSCRIPT)
         speaker_name_map = _load_resource_json(speaker_map_id, ResourceType.JSON_SPEAKER_MAP)
-        transcript_path = _get_resource_path(transcript_id, ResourceType.JSON_TRANSCRIPT)
-        original_name_base = transcript_path.stem.replace("_transcript", "") # Try to get base name
+        _, transcript_original_name = _get_resource_path_and_name(transcript_id, ResourceType.JSON_TRANSCRIPT)
 
-        # Validate speaker_name_map format (simple check)
         if not isinstance(speaker_name_map, dict):
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Speaker map must be a JSON object (dict).")
-        # Could add checks for key/value types if needed
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Speaker map must be a JSON object.")
 
-        print(f"Generating session script from transcript ID: {transcript_id}")
+        print(f"Generating session script from transcript ID: {transcript_id} (Original: {transcript_original_name})")
         session_script: str = transcript2session.transcript_to_session(transcript_data, speaker_name_map)
 
-        if not session_script: # Assuming empty string means failure or no content
+        if not session_script:
              raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Session script generation failed (returned empty).")
 
         print("Session script generation complete. Saving resource...")
         session_metadata = _save_data_resource(
             data=session_script,
             resource_type=ResourceType.TEXT_SESSION,
-            original_name_base=f"{original_name_base}_session_script",
+            input_original_name=transcript_original_name, # Use transcript name as base
+            output_suffix="_session_script",
             extension="txt"
         )
         return session_metadata
@@ -496,32 +600,31 @@ async def process_transcript_to_session(
 
 @app.post("/process/session_to_recap", status_code=status.HTTP_201_CREATED)
 async def process_session_to_recap(
-    session_id: str = Form(...),
-    recap_prompt_id: str = Form(...),
-    google_gemini_api_key: str = Form(...) # Or other LLM key
+    text_session_id: str = Form(...), # Changed from session_id for clarity
+    prompt_id: str = Form(...),       # Explicitly named prompt_id
+    google_gemini_api_key: str = Form(...)
 ):
     """Generates a recap from a session script using an LLM."""
     if not google_gemini_api_key:
          raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="LLM API Key is required.")
 
     try:
-        session_script = _load_resource_text(session_id, ResourceType.TEXT_SESSION)
-        recap_prompt = _load_resource_text(recap_prompt_id, ResourceType.TEXT_PROMPT)
-        session_path = _get_resource_path(session_id, ResourceType.TEXT_SESSION)
-        original_name_base = session_path.stem.replace("_session_script", "")
+        session_script = _load_resource_text(text_session_id, ResourceType.TEXT_SESSION)
+        recap_prompt = _load_resource_text(prompt_id, ResourceType.TEXT_PROMPT)
+        _, session_original_name = _get_resource_path_and_name(text_session_id, ResourceType.TEXT_SESSION)
 
-        print(f"Generating recap for session ID: {session_id}")
-        # Assuming session_to_recap takes script, key, prompt
+        print(f"Generating recap for session ID: {text_session_id} (Original: {session_original_name})")
         recap: str | None = session2recap.session_to_recap(session_script, google_gemini_api_key, recap_prompt)
 
         if not recap:
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Recap generation failed (returned None). Check API key and prompts.")
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Recap generation failed (returned None). Check API key, prompts, and LLM status.")
 
         print("Recap generation complete. Saving resource...")
         recap_metadata = _save_data_resource(
             data=recap,
             resource_type=ResourceType.TEXT_RECAP,
-            original_name_base=f"{original_name_base}_recap",
+            input_original_name=session_original_name,
+            output_suffix="_recap",
             extension="txt"
         )
         return recap_metadata
@@ -535,33 +638,31 @@ async def process_session_to_recap(
 
 @app.post("/process/recap_to_summary", status_code=status.HTTP_201_CREATED)
 async def process_recap_to_summary(
-    recap_id: str = Form(...),
-    summary_prompt_id: str = Form(...),
-    google_gemini_api_key: str = Form(...) # Or other LLM key
+    text_recap_id: str = Form(...), # Changed from recap_id
+    prompt_id: str = Form(...),
+    google_gemini_api_key: str = Form(...)
 ):
     """Generates a summary from a recap using an LLM."""
     if not google_gemini_api_key:
          raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="LLM API Key is required.")
 
     try:
-        recap_text = _load_resource_text(recap_id, ResourceType.TEXT_RECAP)
-        summary_prompt = _load_resource_text(summary_prompt_id, ResourceType.TEXT_PROMPT)
-        recap_path = _get_resource_path(recap_id, ResourceType.TEXT_RECAP)
-        original_name_base = recap_path.stem.replace("_recap", "")
+        recap_text = _load_resource_text(text_recap_id, ResourceType.TEXT_RECAP)
+        summary_prompt = _load_resource_text(prompt_id, ResourceType.TEXT_PROMPT)
+        _, recap_original_name = _get_resource_path_and_name(text_recap_id, ResourceType.TEXT_RECAP)
 
-        print(f"Generating summary for recap ID: {recap_id}")
-        # Assuming recap_to_summary exists and takes recap, key, prompt
-        # Assuming recap_to_summary function exists in session2recap or similar module
+        print(f"Generating summary for recap ID: {text_recap_id} (Original: {recap_original_name})")
         summary: str | None = session2recap.recap_to_summary(recap_text, google_gemini_api_key, summary_prompt)
 
         if not summary:
-             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Summary generation failed (returned None). Check API key and prompts.")
+             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Summary generation failed (returned None). Check API key, prompts, and LLM status.")
 
         print("Summary generation complete. Saving resource...")
         summary_metadata = _save_data_resource(
             data=summary,
             resource_type=ResourceType.TEXT_SUMMARY,
-            original_name_base=f"{original_name_base}_summary",
+            input_original_name=recap_original_name,
+            output_suffix="_summary",
             extension="txt"
         )
         return summary_metadata
@@ -573,8 +674,8 @@ async def process_recap_to_summary(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Summary generation process failed: {e}")
 
 
-# --- Root Endpoint and Server Runner ---
-
+# --- Root Endpoint and Server Runner (No changes needed) ---
+# ... (Keep @app.get("/"), run_server, launch_client, if __name__ == "__main__":) ...
 @app.get("/")
 async def serve_index():
     """Serves the main index.html for the web UI."""
@@ -591,16 +692,12 @@ async def serve_index():
              },
              status_code=status.HTTP_200_OK
          )
-         # Alternatively raise 404:
-         # raise HTTPException(
-         #     status_code=404, detail=f"Index file not found at {index_path}"
-         # )
     return FileResponse(index_path)
 
 
 def run_server():
     """Starts the Uvicorn server."""
-    uvicorn.run(app, host="127.0.0.1", port=8000, log_level="info", reload=False) # reload=False for production/build
+    uvicorn.run(f"{Path(__file__).stem}:app", host="127.0.0.1", port=8000, log_level="info", reload=True) # Use reload=True for dev
 
 
 def launch_client():
@@ -621,20 +718,20 @@ if __name__ == "__main__":
         _get_resource_dir(resource_type).mkdir(parents=True, exist_ok=True)
     print(f"Resource directory base: {RESOURCE_BASE_DIR}")
 
-    # Start server in a background thread
-    server_thread = threading.Thread(target=run_server, daemon=True)
-    server_thread.start()
+    # Start server directly for easier debugging during development
+    # To run in background thread like before, uncomment the threading code
+    # server_thread = threading.Thread(target=run_server, daemon=True)
+    # server_thread.start()
+    # launch_client()
+    # try:
+    #     input("Server is running. Press Enter in this console window to stop...\n")
+    # except KeyboardInterrupt:
+    #     print("\nCtrl+C detected.")
+    # finally:
+    #     print("Stopping server...")
+    #     print("Server stopped.")
 
-    # Launch client browser
-    launch_client()
-
-    # Keep main thread alive to allow server thread to run and wait for user input
-    try:
-        input("Server is running. Press Enter in this console window to stop...\n")
-    except KeyboardInterrupt:
-        print("\nCtrl+C detected.")
-    finally:
-        print("Stopping server...")
-        # Uvicorn running in a daemon thread should exit when the main thread exits.
-        # No explicit stop needed here for uvicorn.run in a thread.
-        print("Server stopped.")
+    # Run server directly in main thread (more common for dev)
+    print("Starting server directly. Press Ctrl+C to stop.")
+    launch_client() # Try opening browser
+    run_server() # This will block until Ctrl+C

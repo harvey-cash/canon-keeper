@@ -1,13 +1,15 @@
 // client/src/App.tsx
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { FiUploadCloud, FiDownload, FiTrash2, FiPlay, FiPause, FiStopCircle, FiAlertTriangle, FiLoader } from 'react-icons/fi'; // Example icons
+import { FiUploadCloud, FiDownload, FiTrash2, FiPlay, FiPause, FiStopCircle, FiAlertTriangle, FiLoader, FiInfo } from 'react-icons/fi';
 
 // --- Constants ---
-const API_BASE_URL = 'http://127.0.0.1:8000'; // Your backend URL
+const API_BASE_URL = 'http://127.0.0.1:8000';
+const FILENAME_SEPARATOR = "__"; // Must match backend
 
 // --- Types ---
-type ResourceType =
+// (ResourceType enum can be removed if not used directly, rely on string type)
+type ResourceTypeString =
     | 'video'
     | 'audio'
     | 'snippet'
@@ -19,207 +21,192 @@ type ResourceType =
     | 'text_prompt';
 
 interface Resource {
-    id: string;
-    original_name: string;
-    type: ResourceType;
-    filename: string; // e.g., "uuid.mp4"
+    id: string;            // UUID
+    original_name: string; // User-facing name (e.g., uploaded.mp4, uploaded_audio.mp3)
+    type: ResourceTypeString;
+    filename: string;      // Name on disk (e.g., uuid__uploaded.mp4)
 }
 
+// (PipelineStep, PreviewContent, ProcessingJob interfaces remain the same)
 interface PipelineStep {
-    id: string; // e.g., "video_to_audio"
+    id: string;
     name: string;
-    inputs: ResourceType[];
-    output: ResourceType;
-    endpoint: string; // API endpoint path relative to base URL
+    inputs: ResourceTypeString[];
+    output: ResourceTypeString;
+    endpoint: string;
     requiresKeys?: ('assemblyAi' | 'googleGemini')[];
-    multiInput?: boolean; // Does it take multiple inputs (like transcript+audio)?
+    multiInput?: boolean;
+    inputFieldNames?: { [key in ResourceTypeString]?: string }; // Optional: Define specific form field names if needed
 }
 
 interface PreviewContent {
     type: 'text' | 'audio' | 'video_placeholder' | 'json' | 'unsupported';
-    data: string | null; // URL for audio, text content for text/json
+    data: string | null;
     error?: string;
 }
 
 interface ProcessingJob {
     stepId: string;
-    // If multiInput is true, this will contain IDs for all required inputs
-    // otherwise just the single input ID
     inputResourceIds: string[];
-    // Store the specific API keys used for this job if required
     apiKeys?: { assemblyAi?: string; googleGemini?: string };
+    // Store original names of inputs for better output naming context if needed
+    inputOriginalNames?: { [id: string]: string };
 }
 
+
 // --- Pipeline Definition ---
+// Add specific input field names where needed (matching backend Form(...) names)
 const PIPELINE_STEPS: PipelineStep[] = [
     {
-        id: 'video_to_audio',
-        name: '1. Video to Audio',
-        inputs: ['video'],
-        output: 'audio',
-        endpoint: '/process/video_to_audio',
+        id: 'video_to_audio', name: '1. Video to Audio', inputs: ['video'], output: 'audio', endpoint: '/process/video_to_audio',
+        inputFieldNames: { video: 'video_id' }
     },
     {
-        id: 'audio_to_transcript',
-        name: '2. Audio to Transcript',
-        inputs: ['audio'],
-        output: 'json_transcript',
-        endpoint: '/process/audio_to_transcript',
-        requiresKeys: ['assemblyAi'],
+        id: 'audio_to_transcript', name: '2. Audio to Transcript', inputs: ['audio'], output: 'json_transcript', endpoint: '/process/audio_to_transcript', requiresKeys: ['assemblyAi'],
+        inputFieldNames: { audio: 'audio_id' } // Backend expects 'audio_id'
     },
     {
-        id: 'transcript_to_snippets',
-        name: '3. Transcript to Snippets',
-        inputs: ['audio', 'json_transcript'],
-        output: 'snippet', // Special case: generates multiple snippets
-        endpoint: '/process/transcript_to_snippets',
-        multiInput: true,
+        id: 'transcript_to_snippets', name: '3. Transcript to Snippets', inputs: ['audio', 'json_transcript'], output: 'snippet', endpoint: '/process/transcript_to_snippets', multiInput: true,
+        inputFieldNames: { audio: 'audio_id', json_transcript: 'transcript_id' }
     },
     {
-        id: 'transcript_to_session',
-        name: '4. Transcript to Session',
-        inputs: ['json_transcript', 'json_speaker_map'],
-        output: 'text_session',
-        endpoint: '/process/transcript_to_session',
-        multiInput: true,
+        id: 'transcript_to_session', name: '4. Transcript to Session', inputs: ['json_transcript', 'json_speaker_map'], output: 'text_session', endpoint: '/process/transcript_to_session', multiInput: true,
+        inputFieldNames: { json_transcript: 'transcript_id', json_speaker_map: 'speaker_map_id' }
     },
     {
-        id: 'session_to_recap',
-        name: '5. Session to Recap',
-        inputs: ['text_session', 'text_prompt'],
-        output: 'text_recap',
-        endpoint: '/process/session_to_recap',
-        requiresKeys: ['googleGemini'],
-        multiInput: true, // Takes session + prompt
+        id: 'session_to_recap', name: '5. Session to Recap', inputs: ['text_session', 'text_prompt'], output: 'text_recap', endpoint: '/process/session_to_recap', requiresKeys: ['googleGemini'], multiInput: true,
+        // Backend expects 'text_session_id' and 'prompt_id' based on our backend update
+        inputFieldNames: { text_session: 'text_session_id', text_prompt: 'prompt_id' }
     },
     {
-        id: 'recap_to_summary',
-        name: '6. Recap to Summary',
-        inputs: ['text_recap', 'text_prompt'],
-        output: 'text_summary',
-        endpoint: '/process/recap_to_summary',
-        requiresKeys: ['googleGemini'],
-        multiInput: true, // Takes recap + prompt
+        id: 'recap_to_summary', name: '6. Recap to Summary', inputs: ['text_recap', 'text_prompt'], output: 'text_summary', endpoint: '/process/recap_to_summary', requiresKeys: ['googleGemini'], multiInput: true,
+        // Backend expects 'text_recap_id' and 'prompt_id' based on our backend update
+        inputFieldNames: { text_recap: 'text_recap_id', text_prompt: 'prompt_id' }
     },
 ];
 
 // --- API Helper Functions ---
-
+// Improved error handling
 async function fetchApi<T>(
     endpoint: string,
     options: RequestInit = {}
 ): Promise<T> {
     const url = `${API_BASE_URL}${endpoint}`;
+    let response: Response | null = null;
     try {
-        const response = await fetch(url, {
+        response = await fetch(url, {
             ...options,
             headers: {
-                Accept: 'application/json', // Expect JSON by default
+                Accept: 'application/json',
                 ...(options.headers || {}),
             },
         });
 
         if (!response.ok) {
-            let errorDetail = `HTTP error! Status: ${response.status}`;
+            let errorDetail = `HTTP error! Status: ${response.status} ${response.statusText}`;
+            let errorJson: any = null;
             try {
-                const errorJson = await response.json();
-                errorDetail = errorJson.detail || JSON.stringify(errorJson) || errorDetail;
+                 // Check content type before parsing JSON
+                 const contentType = response.headers.get('content-type');
+                 if (contentType && contentType.includes('application/json')) {
+                    errorJson = await response.json();
+                    errorDetail = errorJson.detail || JSON.stringify(errorJson) || errorDetail;
+                 } else {
+                    // Try reading as text for non-JSON errors
+                    const textError = await response.text();
+                    errorDetail = textError || errorDetail;
+                 }
+
             } catch (e) {
-                // Ignore if response is not JSON
+                console.warn("Could not parse error response body:", e)
             }
-            throw new Error(errorDetail);
+             console.error(`API Error Response (${url}):`, errorDetail, errorJson); // Log detailed error
+            throw new Error(errorDetail); // Throw the detailed message
         }
 
-        // Handle cases where the response might be empty (e.g., DELETE)
         if (response.status === 204 || response.headers.get('content-length') === '0') {
-            return null as T; // Or an appropriate empty value
-        }
-        // Handle file downloads separately if needed, based on content-type
-        if (response.headers.get('content-type')?.includes('application/octet-stream') ||
-            response.headers.get('content-type')?.startsWith('audio/') ||
-            response.headers.get('content-type')?.startsWith('video/') ||
-            response.headers.get('content-type')?.startsWith('text/plain') ) {
-             // For direct text/blob handling if required, but usually download links work better
-             // const blob = await response.blob(); return blob as T;
-             console.warn("API fetch received direct file data, but expected JSON or empty. Endpoint:", endpoint);
+            return null as T;
         }
 
-
+        // Assuming successful responses are JSON unless handled otherwise (like downloads)
         return response.json() as Promise<T>;
+
     } catch (error) {
-        console.error(`API Error fetching ${url}:`, error);
-        throw error; // Re-throw to be caught by calling function
+        console.error(`API Fetch Error (${url}):`, error);
+        // Ensure we throw an Error object with a message
+        if (error instanceof Error) {
+            throw error;
+        } else {
+            throw new Error(String(error));
+        }
     }
 }
+
+// Helper function specifically for comparing base names for warnings
+const getBaseNameForComparison = (filename: string | undefined): string => {
+  if (!filename) return '';
+  // Remove known suffixes first, then the final extension
+  return filename
+      .replace(/_audio\.mp3$/i, '')
+      .replace(/_transcript\.json$/i, '')
+      .replace(/_session_script\.txt$/i, '')
+      .replace(/_recap\.txt$/i, '')
+      .replace(/_summary\.txt$/i, '')
+      .replace(/_prompt\.txt$/i, '')
+      .replace(/_snippet\.mp3$/i, '')
+      .replace(/_speaker_map\.json$/i, '')
+      .replace(/\.\w+$/, ''); // Remove final extension
+};
 
 // --- Utility Functions ---
-
-function getResourceTypeFromFilename(filename: string): ResourceType | null {
-    const ext = filename.split('.').pop()?.toLowerCase();
-    if (!ext) return null;
-
-    if (['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext)) return 'video';
-    if (['mp3', 'wav', 'ogg', 'm4a', 'flac'].includes(ext)) return 'audio'; // includes snippets
-    if (ext === 'json') {
-        // Basic heuristic - needs improvement if naming isn't consistent
-        if (filename.includes('_transcript')) return 'json_transcript';
-        if (filename.includes('_speaker_map')) return 'json_speaker_map';
-        return 'json_transcript'; // Default guess for json
-    }
-    if (ext === 'txt') {
-        if (filename.includes('_session')) return 'text_session';
-        if (filename.includes('_recap')) return 'text_recap';
-        if (filename.includes('_summary')) return 'text_summary';
-        if (filename.includes('_prompt')) return 'text_prompt';
-        return 'text_prompt'; // Default guess for text
-    }
-    return null;
-}
-
+// Updated getBaseName to handle the new format if needed, but parsing __ might be complex here.
+// Let's primarily rely on the backend providing a good original_name.
 function getBaseName(filename: string | undefined): string {
     if (!filename) return '';
-    // Remove common suffixes added by the pipeline
-    return filename
-        .replace(/_transcript\.json$/, '')
-        .replace(/_audio\.mp3$/, '')
-        .replace(/_session_script\.txt$/, '')
-        .replace(/_recap\.txt$/, '')
-        .replace(/_summary\.txt$/, '')
-        .replace(/_prompt\.txt$/, '')
-        .replace(/_snippet\.mp3$/, '')
-        .replace(/\.\w+$/, ''); // Remove final extension
+    // If filename includes separator, try using the part after it
+    if (filename.includes(FILENAME_SEPARATOR)) {
+        const namePart = filename.split(FILENAME_SEPARATOR, 1)[1] || filename;
+        return Path.stem(namePart); // Use Path lib if available or simple splitext
+    }
+    // Fallback for old format or simple names
+    return filename.replace(/\.\w+$/, ''); // Remove final extension
 }
+// Simple Path.stem equivalent
+namespace Path { export function stem(filename: string): string { const parts = filename.split('.'); parts.pop(); return parts.join('.'); }}
 
 // --- Main App Component ---
 function App() {
+    // ... (useState declarations remain mostly the same) ...
     const [resources, setResources] = useState<Resource[]>([]);
     const [selectedResourceIds, setSelectedResourceIds] = useState<Set<string>>(new Set());
     const [previewContent, setPreviewContent] = useState<{ [id: string]: PreviewContent }>({});
     const [isLoadingResources, setIsLoadingResources] = useState(true);
     const [isLoadingPreview, setIsLoadingPreview] = useState<Set<string>>(new Set());
-    const [error, setError] = useState<string | null>(null);
+    const [error, setError] = useState<string | null>(null); // Store general errors
+    const [stepErrors, setStepErrors] = useState<{ [stepId: string]: string | null }>({}); // Errors specific to steps
     const [apiKeys, setApiKeys] = useState<{ assemblyAi?: string; googleGemini?: string }>({});
     const [processingQueue, setProcessingQueue] = useState<ProcessingJob[]>([]);
     const [currentlyProcessing, setCurrentlyProcessing] = useState<ProcessingJob | null>(null);
     const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
-    const [resourceToDelete, setResourceToDelete] = useState<Resource | null>(null); // For single delete from list item
+    const [resourceToDelete, setResourceToDelete] = useState<Resource | null>(null);
     const [showSpeakerMapForm, setShowSpeakerMapForm] = useState(false);
     const [snippetsForMapping, setSnippetsForMapping] = useState<Resource[]>([]);
     const [speakerMapInput, setSpeakerMapInput] = useState<{ [label: string]: string }>({});
     const [uploadError, setUploadError] = useState<string | null>(null);
-
+    const [uploadProgress, setUploadProgress] = useState<number | null>(null); // For potential progress bar
 
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     // --- Data Fetching ---
     const fetchResources = useCallback(async () => {
         setIsLoadingResources(true);
-        setError(null);
+        // Don't clear general error on auto-refresh maybe
+        // setError(null);
         try {
             const data = await fetchApi<Resource[]>('/resources');
-            setResources(data || []); // Handle null response if API returns empty list that way
+            setResources(data || []);
         } catch (err: any) {
-            setError(`Failed to fetch resources: ${err.message}`);
+            setError(`Failed to fetch resources: ${err.message}`); // Show fetch error prominently
             setResources([]);
         } finally {
             setIsLoadingResources(false);
@@ -241,124 +228,158 @@ function App() {
             }
             return newSet;
         });
+        // Clear step-specific errors when selection changes
+        setStepErrors({});
     };
 
     const selectedResources = useMemo(() => {
         return resources.filter(r => selectedResourceIds.has(r.id));
     }, [resources, selectedResourceIds]);
 
-    // Fetch preview content when selection changes
-    useEffect(() => {
-        const fetchPreview = async (resource: Resource) => {
-             if (previewContent[resource.id] || isLoadingPreview.has(resource.id)) return; // Already loaded or loading
+    // Fetch preview content effect remains largely the same...
+     useEffect(() => {
+         const fetchPreview = async (resource: Resource) => {
+              if (previewContent[resource.id] || isLoadingPreview.has(resource.id)) return;
 
-            setIsLoadingPreview(prev => new Set(prev).add(resource.id));
-            let content: PreviewContent = { type: 'unsupported', data: null };
-            const downloadUrl = `${API_BASE_URL}/download/${resource.type}/${resource.id}`;
+             setIsLoadingPreview(prev => new Set(prev).add(resource.id));
+             let content: PreviewContent = { type: 'unsupported', data: null };
+             // Use resource.id (UUID) for the download URL
+             const downloadUrl = `${API_BASE_URL}/download/${resource.type}/${resource.id}`;
 
-            try {
-                if (resource.type.startsWith('text/') || resource.type.startsWith('json_')) {
-                     const response = await fetch(downloadUrl);
-                     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                     const textData = await response.text();
-                     content = {
-                         type: resource.type.startsWith('json_') ? 'json' : 'text',
-                         data: textData,
-                     };
-                } else if (resource.type === 'audio' || resource.type === 'snippet') {
-                    content = { type: 'audio', data: downloadUrl };
-                } else if (resource.type === 'video') {
-                     content = { type: 'video_placeholder', data: null };
-                 }
-             } catch (err: any) {
-                 console.error(`Error fetching preview for ${resource.id}:`, err);
-                 content = { type: 'unsupported', data: null, error: `Failed to load preview: ${err.message}` };
-             } finally {
-                 setPreviewContent(prev => ({ ...prev, [resource.id]: content }));
-                 setIsLoadingPreview(prev => {
-                     const newSet = new Set(prev);
-                     newSet.delete(resource.id);
-                     return newSet;
-                 });
-             }
-         };
+             try {
+                 if (resource.type.startsWith('text/') || resource.type.startsWith('json_')) {
+                      const response = await fetch(downloadUrl); // Fetch directly
+                      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                      const textData = await response.text();
+                      content = {
+                          type: resource.type.startsWith('json_') ? 'json' : 'text',
+                          data: textData,
+                      };
+                 } else if (resource.type === 'audio' || resource.type === 'snippet') {
+                     // For audio, just provide the URL to the <audio> tag
+                     content = { type: 'audio', data: downloadUrl };
+                 } else if (resource.type === 'video') {
+                      content = { type: 'video_placeholder', data: null };
+                  }
+              } catch (err: any) {
+                  console.error(`Error fetching preview for ${resource.original_name} (ID: ${resource.id}):`, err);
+                  content = { type: 'unsupported', data: null, error: `Failed to load preview: ${err.message}` };
+              } finally {
+                  setPreviewContent(prev => ({ ...prev, [resource.id]: content }));
+                  setIsLoadingPreview(prev => {
+                      const newSet = new Set(prev);
+                      newSet.delete(resource.id);
+                      return newSet;
+                  });
+              }
+          };
 
-        selectedResources.forEach(fetchPreview);
+         selectedResources.forEach(fetchPreview);
 
-    }, [selectedResources, previewContent, isLoadingPreview]);
+     }, [selectedResources, previewContent, isLoadingPreview]);
 
 
     // --- Resource Actions (Upload, Download, Delete) ---
-
+    // onDrop needs to determine resource type *before* calling upload endpoint
     const onDrop = useCallback(async (acceptedFiles: File[]) => {
         setUploadError(null);
-        if (acceptedFiles.length === 0) return;
+        setUploadProgress(0); // Start progress tracking
+        if (acceptedFiles.length === 0) {
+            setUploadProgress(null);
+            return;
+        };
 
-        // You might want a loading indicator for uploads
+        let filesProcessed = 0;
+        const totalFiles = acceptedFiles.length;
+
+        // Simple heuristic for resource type based on extension
+        const getUploadResourceType = (filename: string): ResourceTypeString | null => {
+            const ext = filename.split('.').pop()?.toLowerCase();
+            if (!ext) return null;
+            // Prioritize prompts, then specific types, then general audio/video
+            if (filename.toLowerCase().includes('prompt') && ext === 'txt') return 'text_prompt';
+            if (ext === 'json') return 'json_transcript'; // Assume transcript for direct upload for now
+            if (ext === 'txt') return 'text_session'; // Assume session script for now
+            if (['mp3', 'wav', 'ogg', 'm4a', 'flac'].includes(ext)) return 'audio';
+            if (['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext)) return 'video';
+            return null; // Unknown
+        }
+
         const uploadPromises = acceptedFiles.map(async (file) => {
-            const resourceType = getResourceTypeFromFilename(file.name);
+            const resourceType = getUploadResourceType(file.name);
             if (!resourceType) {
-                console.warn(`Skipping upload for ${file.name}: Unknown resource type.`);
-                setUploadError(prev => `${prev ? prev + '\n' : ''}Skipped ${file.name}: Unknown type.`);
-                return; // Skip this file
+                console.warn(`Skipping upload for ${file.name}: Cannot determine resource type for direct upload.`);
+                setUploadError(prev => `${prev ? prev + '\n' : ''}Skipped ${file.name}: Unknown/unsupported type for upload.`);
+                filesProcessed++;
+                setUploadProgress((filesProcessed / totalFiles) * 100);
+                return;
             }
 
             const formData = new FormData();
             formData.append('file', file);
 
             try {
+                 console.log(`Uploading ${file.name} as type ${resourceType}...`);
                  await fetchApi(`/upload/${resourceType}`, {
                      method: 'POST',
                      body: formData,
-                     // IMPORTANT: Don't set Content-Type header for FormData, browser does it correctly with boundary
                  });
              } catch (err: any) {
                  console.error(`Failed to upload ${file.name}:`, err);
                   setUploadError(prev => `${prev ? prev + '\n' : ''}Failed to upload ${file.name}: ${err.message}`);
+             } finally {
+                 filesProcessed++;
+                 setUploadProgress((filesProcessed / totalFiles) * 100);
              }
         });
 
         await Promise.all(uploadPromises);
         fetchResources(); // Refresh list after all uploads attempted
-        // Clear upload error after a delay? Or require manual dismissal
-        // setTimeout(() => setUploadError(null), 5000);
+        // Clear progress after a short delay
+        setTimeout(() => setUploadProgress(null), 1500);
 
     }, [fetchResources]);
 
-    const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop, noClick: true }); // Use button for click
+    // Other handlers (handleUploadClick, handleFileSelected, handleDownloadSelected, handleDeleteSelected, confirmDeletion, cancelDeletion, handleDeleteClick) remain largely the same...
+    const { getRootProps, getInputProps, isDragActive } = useDropzone({
+        onDrop,
+        noClick: true,
+        multiple: true, // Allow multiple files
+        onDragEnter: () => {}, // Default empty handler
+        onDragOver: () => {}, // Default empty handler
+        onDragLeave: () => {}, // Default empty handler
+    });
 
     const handleUploadClick = () => {
         fileInputRef.current?.click();
     };
 
-    const handleFileSelected = (event: React.ChangeEvent<HTMLInputElement>) => {
-        if (event.target.files) {
-            onDrop(Array.from(event.target.files));
-        }
-        // Reset input value to allow selecting the same file again
-        event.target.value = '';
-    };
-
-     const handleDownloadSelected = () => {
-         if (selectedResources.length === 0) return;
-
-         selectedResources.forEach(resource => {
-             const link = document.createElement('a');
-             link.href = `${API_BASE_URL}/download/${resource.type}/${resource.id}`;
-             link.download = resource.original_name || resource.filename; // Use original name if available
-             document.body.appendChild(link);
-             link.click();
-             document.body.removeChild(link);
-         });
-
-         setSelectedResourceIds(new Set()); // Deselect after download
+     const handleFileSelected = (event: React.ChangeEvent<HTMLInputElement>) => {
+         if (event.target.files) {
+             onDrop(Array.from(event.target.files));
+         }
+         event.target.value = '';
      };
+
+      const handleDownloadSelected = () => {
+          if (selectedResources.length === 0) return;
+          selectedResources.forEach(resource => {
+              // Use resource.id for the download URL
+              const link = document.createElement('a');
+              link.href = `${API_BASE_URL}/download/${resource.type}/${resource.id}`;
+              // Use resource.original_name for the downloaded filename
+              link.download = resource.original_name || resource.filename;
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+          });
+          setSelectedResourceIds(new Set());
+      };
 
      const handleDeleteSelected = () => {
          if (selectedResources.length === 0) return;
          setShowDeleteConfirmModal(true);
-         // We'll delete multiple in the confirmation handler
-         setResourceToDelete(null); // Ensure single delete state is clear
+         setResourceToDelete(null);
      };
 
       const confirmDeletion = async () => {
@@ -367,20 +388,24 @@ function App() {
 
          if (idsToDelete.length === 0) return;
 
-         setError(null); // Clear previous errors
-         // Add a loading state for deletion if needed
+         setError(null);
+         let deleteErrors = "";
 
          const deletePromises = resourcesToDelete.map(res =>
+             // Use res.id (UUID) for deletion
              fetchApi(`/resource/${res.type}/${res.id}`, { method: 'DELETE' })
                  .catch(err => {
-                      console.error(`Failed to delete ${res.id} (${res.type}):`, err);
-                      setError(prev => `${prev ? prev + '\n' : ''}Failed to delete ${res.original_name}: ${err.message}`);
+                      console.error(`Failed to delete ${res.original_name} (ID: ${res.id}):`, err);
+                      deleteErrors += `Failed to delete ${res.original_name}: ${err.message}\n`;
                  })
          );
 
          await Promise.all(deletePromises);
 
-         // Cleanup state
+         if (deleteErrors) {
+             setError(deleteErrors.trim());
+         }
+
          setShowDeleteConfirmModal(false);
          setResourceToDelete(null);
          setSelectedResourceIds(prev => {
@@ -397,475 +422,528 @@ function App() {
       };
 
       const handleDeleteClick = (e: React.MouseEvent, resource: Resource) => {
-          e.stopPropagation(); // Prevent row selection when clicking delete icon
+          e.stopPropagation();
           setResourceToDelete(resource);
           setShowDeleteConfirmModal(true);
       }
 
-
     // --- Pipeline Processing ---
-
     const processJob = useCallback(async (job: ProcessingJob) => {
-        setError(null);
+        // Clear previous error for this step
+        setStepErrors(prev => ({ ...prev, [job.stepId]: null }));
         setCurrentlyProcessing(job);
 
         const step = PIPELINE_STEPS.find(s => s.id === job.stepId);
         if (!step) {
+            const errorMsg = `Internal error: Invalid step ID ${job.stepId}`;
             console.error("Invalid step ID in job:", job.stepId);
-            setError(`Internal error: Invalid step ID ${job.stepId}`);
-            setCurrentlyProcessing(null); // Move to next if any
+            setError(errorMsg); // Use general error for this internal issue
+            setCurrentlyProcessing(null);
             return;
         }
 
         const formData = new FormData();
         const keyRequirements = step.requiresKeys || [];
-        const jobKeys = job.apiKeys || {};
+        const jobKeys = apiKeys; // Use current API keys state
 
         // Add required API keys
         for (const keyName of keyRequirements) {
-            const apiKey = keyName === 'assemblyAi' ? apiKeys.assemblyAi : apiKeys.googleGemini;
+            const apiKey = keyName === 'assemblyAi' ? jobKeys.assemblyAi : jobKeys.googleGemini;
             if (!apiKey) {
-                setError(`API Key "${keyName}" is required for step "${step.name}" but not provided.`);
+                const errorMsg = `API Key "${keyName}" is required for step "${step.name}" but not provided.`;
+                setStepErrors(prev => ({ ...prev, [job.stepId]: errorMsg }));
                 setCurrentlyProcessing(null);
-                setProcessingQueue([]); // Clear queue as key is missing
+                setProcessingQueue([]); // Clear queue
                 return;
             }
-            formData.append(`${keyName}_api_key`, apiKey); // Backend expects snake_case keys
+            // Use snake_case key name expected by backend
+            const backendKeyName = keyName === 'assemblyAi' ? 'assemblyai_api_key' : 'google_gemini_api_key';
+            formData.append(backendKeyName, apiKey);
         }
 
-        // Add input resource IDs
-        // Backend needs to know which form field corresponds to which input type
-        // Simple approach: use the resource type as the field name if only one input of that type
-        // More robust: define specific field names in PipelineStep definition
-        if (step.inputs.length === 1) {
-            formData.append(`${step.inputs[0]}_id`, job.inputResourceIds[0]);
-        } else if (step.multiInput) {
-            // Assume order matches or use explicit naming (e.g., audio_id, transcript_id)
-            // Let's try to map based on type (assuming unique input types for now)
-            const resourcesForJob = resources.filter(r => job.inputResourceIds.includes(r.id));
-            step.inputs.forEach(inputType => {
-                const resource = resourcesForJob.find(r => r.type === inputType);
-                if (resource) {
-                     formData.append(`${inputType}_id`, resource.id);
-                } else {
-                     setError(`Internal error: Missing input resource of type ${inputType} for job ${job.stepId}`);
-                     setCurrentlyProcessing(null);
-                     setProcessingQueue([]);
-                     return;
-                }
-            });
-             if (step.id === 'session_to_recap' || step.id === 'recap_to_summary') {
-                // Find the prompt specifically
-                const promptResource = resourcesForJob.find(r => r.type === 'text_prompt');
-                const mainInputResource = resourcesForJob.find(r => r.type !== 'text_prompt');
-                if (promptResource && mainInputResource) {
-                    // Backend endpoint likely expects specific names like 'session_id' or 'recap_id' and 'prompt_id'
-                    formData.set(`${mainInputResource.type}_id`, mainInputResource.id); // e.g., text_session_id
-                    formData.set(`prompt_id`, promptResource.id); // Adjust field name if backend expects this
-                } else {
-                     setError(`Internal error: Missing main input or prompt for job ${job.stepId}`);
-                     setCurrentlyProcessing(null);
-                     setProcessingQueue([]);
-                     return;
-                }
-            }
-        }
+        // Add input resource IDs using defined field names or type as fallback
+        const inputResources = resources.filter(r => job.inputResourceIds.includes(r.id));
+        let missingInput = false;
+        step.inputs.forEach(inputType => {
+             const resource = inputResources.find(r => r.type === inputType);
+             if (resource) {
+                 // Use defined field name or fallback to `${inputType}_id`
+                 const fieldName = step.inputFieldNames?.[inputType] || `${inputType}_id`;
+                 formData.append(fieldName, resource.id); // Use UUID (resource.id)
+             } else {
+                  const errorMsg = `Internal error: Missing required input of type '${inputType}' for step "${step.name}".`;
+                  setStepErrors(prev => ({...prev, [job.stepId]: errorMsg }));
+                  missingInput = true;
+             }
+         });
 
+        if (missingInput) {
+            setCurrentlyProcessing(null);
+            setProcessingQueue([]);
+            return;
+        }
 
         try {
-             console.log(`Calling endpoint ${step.endpoint} for job:`, job, "FormData:", Object.fromEntries(formData.entries()));
-             // Response could be a single resource or map for snippets
+             console.log(`Calling endpoint ${step.endpoint} for job:`, job);
+             console.log("FormData being sent:", Object.fromEntries(formData.entries())); // Log FormData
+
              const result = await fetchApi<Resource | { [key: string]: Resource }>(step.endpoint, {
                  method: 'POST',
                  body: formData,
              });
 
-            await fetchResources(); // Refresh resources list
+             await fetchResources(); // Refresh resources list
 
-            // Handle special case for transcript_to_snippets
+             // Handle result (snippets or single resource)
+             let newResourceIds: string[] = [];
              if (step.id === 'transcript_to_snippets' && typeof result === 'object' && result !== null) {
                  const generatedSnippets = Object.values(result as { [key: string]: Resource });
-                 if (generatedSnippets.length > 0) {
-                     setSnippetsForMapping(generatedSnippets);
-                     setShowSpeakerMapForm(true);
-                     // Automatically select the new snippets
-                     setSelectedResourceIds(prev => new Set([...prev, ...generatedSnippets.map(s => s.id)]));
+                  if (generatedSnippets.length > 0) {
+                      setSnippetsForMapping(generatedSnippets);
+                      setShowSpeakerMapForm(true);
+                      newResourceIds = generatedSnippets.map(s => s.id);
                  } else {
-                     setError("Snippet generation finished but returned no snippets.");
+                     // Show error specific to this step
+                      setStepErrors(prev => ({ ...prev, [job.stepId]: "Snippet generation finished but returned no snippets."}));
                  }
-
              } else if (result && typeof result === 'object' && 'id' in result) {
-                const newResource = result as Resource;
-                // Select the newly created resource
-                 setSelectedResourceIds(prev => new Set([...prev, newResource.id]));
+                 const newResource = result as Resource;
+                 newResourceIds = [newResource.id];
             } else {
-                // Handle cases where the endpoint might not return the created resource directly
-                 console.log(`Step ${step.id} completed.`);
+                 console.log(`Step ${step.id} completed, no specific resource returned in response.`);
+                 // Might still need to refresh or check status differently
             }
 
+            // Select newly created resources
+             if (newResourceIds.length > 0) {
+                 setSelectedResourceIds(prev => new Set([...Array.from(prev), ...newResourceIds]));
+             }
 
         } catch (err: any) {
              console.error(`Error processing job ${job.stepId} for resources ${job.inputResourceIds.join(', ')}:`, err);
-             setError(`Step "${step.name}" failed: ${err.message}`);
+             // Display error message associated with the specific step
+              setStepErrors(prev => ({ ...prev, [job.stepId]: `Step "${step.name}" failed: ${err.message}`}));
              setProcessingQueue([]); // Stop queue on error
         } finally {
              setCurrentlyProcessing(null);
         }
 
-    }, [apiKeys, fetchResources, resources]); // Added 'resources' dependency
+    }, [apiKeys, fetchResources, resources]); // Include resources
 
-     // Effect to run the processing queue
+    // useEffect to run the queue remains the same
      useEffect(() => {
          if (!currentlyProcessing && processingQueue.length > 0) {
              const nextJob = processingQueue[0];
-             setProcessingQueue(prev => prev.slice(1)); // Dequeue
+             setProcessingQueue(prev => prev.slice(1));
              processJob(nextJob);
          }
      }, [currentlyProcessing, processingQueue, processJob]);
 
 
-     const handleStartProcessing = (step: PipelineStep) => {
-         setError(null);
-         const newJobs: ProcessingJob[] = [];
+    // handleStartProcessing needs to log state *before* queuing
+    const handleStartProcessing = (step: PipelineStep) => {
+        // ... (keep the initial error clearing and logging) ...
+        setError(null);
+        setStepErrors(prev => ({ ...prev, [step.id]: null })); // Use step.id
+        console.log(`Attempting to start step: ${step.id}`);
+        console.log("Current selectedResourceIds:", selectedResourceIds);
+        console.log("Current apiKeys:", apiKeys);
+    
+        const newJobs: ProcessingJob[] = [];
+        const currentSelectedResources = resources.filter(r => selectedResourceIds.has(r.id));
+    
+        if (step.multiInput && step.inputs.length > 0) {
+            // --- Pairing Logic (Heuristic) ---
+            const groups: { [baseName: string]: { [type in ResourceTypeString]?: Resource } } = {};
+            currentSelectedResources.forEach(res => {
+                // Use the robust comparison base name for grouping heuristic
+                let base = getBaseNameForComparison(res.original_name);
+                if (!groups[base]) groups[base] = {};
+                groups[base][res.type] = res;
+            });
+    
+            Object.values(groups).forEach(group => {
+                const hasAllInputs = step.inputs.every(inputType => group[inputType]);
+                if (hasAllInputs) {
+                    const inputIds = step.inputs.map(inputType => group[inputType]!.id);
+                    newJobs.push({
+                        stepId: step.id,
+                        inputResourceIds: inputIds,
+                        apiKeys: step.requiresKeys ? apiKeys : undefined,
+                        inputOriginalNames: Object.fromEntries(inputIds.map(id => [id, resources.find(r=>r.id===id)?.original_name || '']))
+                    });
+                }
+            });
+    
+            // --- Fallback / Adjustment ---
+            // If heuristic found no pairs, BUT exactly one of each required input type IS selected, allow processing that single pair.
+            if (newJobs.length === 0) {
+                const requiredInputsSelected = step.inputs.map(inputType =>
+                    currentSelectedResources.filter(r => r.type === inputType)
+                );
+                // Check if exactly one of each is selected
+                const exactlyOneOfEachSelected = requiredInputsSelected.every(list => list.length === 1);
+    
+                if (exactlyOneOfEachSelected) {
+                    console.log(`Pairing heuristic failed for step ${step.id}, but exactly one of each input type selected. Proceeding with selected pair.`);
+                    const inputIds = requiredInputsSelected.map(list => list[0].id);
+                    newJobs.push({
+                        stepId: step.id,
+                        inputResourceIds: inputIds,
+                        apiKeys: step.requiresKeys ? apiKeys : undefined,
+                        inputOriginalNames: Object.fromEntries(inputIds.map(id => [id, resources.find(r=>r.id===id)?.original_name || '']))
+                    });
+                }
+                // REMOVE THE BLOCKER: Do NOT set an error or return just because the heuristic failed.
+                // The error about incorrect *selection* (handled later) is still valid.
+                // else { // Only error if the SELECTION itself is wrong, not if pairing failed
+                //     const errorMsg = `Could not automatically pair resources for step "<span class="math-inline">\{step\.name\}"\. Ensure required inputs \(</span>{step.inputs.join(', ')}) share a common base filename OR select exactly one of each required input.`;
+                //     setStepErrors(prev => ({ ...prev, [step.id]: errorMsg }));
+                //     // return; // REMOVE THIS BLOCKER
+                // }
+            }
+    
+        } else if (step.inputs.length === 1) {
+            // ... (single input logic remains the same) ...
+            currentSelectedResources
+                .filter(r => r.type === step.inputs[0])
+                .forEach(resource => {
+                    newJobs.push({
+                        stepId: step.id,
+                        inputResourceIds: [resource.id],
+                        apiKeys: step.requiresKeys ? apiKeys : undefined,
+                        inputOriginalNames: {[resource.id]: resource.original_name}
+                    });
+                });
+        }
+    
+        // --- Final Check and Queueing ---
+        if (newJobs.length > 0) {
+            setProcessingQueue(prev => [...prev, ...newJobs]);
+        } else {
+            // If still no jobs created, it means the *selection* was invalid (not enough items, wrong types)
+            const errorMsg = `Invalid selection for step "${step.name}". Select the required input(s): ${step.inputs.join(', ')}.`;
+            setStepErrors(prev => ({ ...prev, [step.id]: errorMsg }));
+        }
+    };
 
-        // Find matching combinations of selected resources for the step's inputs
-         if (step.multiInput && step.inputs.length > 0) {
-             // More complex logic needed to find *sets* of inputs
-             // Example: transcript_to_snippets (audio + json_transcript)
-             const input1Resources = selectedResources.filter(r => r.type === step.inputs[0]);
-             const input2Resources = selectedResources.filter(r => r.type === step.inputs[1]);
+     // handleStopProcessing remains the same
+      const handleStopProcessing = () => {
+          setProcessingQueue([]);
+          if (currentlyProcessing) {
+              console.log("Processing queue stopped. Current job will finish.");
+          }
+      };
 
-             // Try to pair them based on base names (simple heuristic)
-             input1Resources.forEach(res1 => {
-                 const baseName1 = getBaseName(res1.original_name);
-                 const matchingRes2 = input2Resources.find(res2 => getBaseName(res2.original_name) === baseName1);
-                 if (matchingRes2) {
-                     newJobs.push({
-                         stepId: step.id,
-                         inputResourceIds: [res1.id, matchingRes2.id],
-                         apiKeys: step.requiresKeys ? apiKeys : undefined
-                     });
-                 }
-             });
-             if (newJobs.length === 0 && input1Resources.length > 0 && input2Resources.length > 0) {
-                 // Fallback: If no name match, maybe allow processing first pair found? Or require explicit pairing?
-                 // For now, require name match heuristic. Add warning?
-                  setError(`Could not automatically pair resources for step "${step.name}". Ensure base filenames match (e.g., 'session1_audio.mp3' and 'session1_transcript.json').`);
-                  return;
-             }
-
-         } else if (step.inputs.length === 1) {
-             // Simple case: one input type
-             selectedResources
-                 .filter(r => r.type === step.inputs[0])
-                 .forEach(resource => {
-                     newJobs.push({
-                         stepId: step.id,
-                         inputResourceIds: [resource.id],
-                         apiKeys: step.requiresKeys ? apiKeys : undefined
-                     });
-                 });
-         }
-
-
-         if (newJobs.length > 0) {
-             setProcessingQueue(prev => [...prev, ...newJobs]);
-         } else {
-             setError(`No selected resources match the input requirements for step "${step.name}".`);
-         }
-     };
-
-     const handleStopProcessing = () => {
-         setProcessingQueue([]); // Clear the queue
-         // Note: This doesn't stop the *currently executing* backend process
-         if (currentlyProcessing) {
-             console.log("Processing queue stopped. Current job will finish.");
-             // We could potentially add an abort signal here if the backend supports it
-         }
-     };
-
-
-     // --- Speaker Map Form ---
+    // --- Speaker Map Form (Submit needs to create correct filename) ---
      const handleSpeakerNameChange = (label: string, name: string) => {
          setSpeakerMapInput(prev => ({ ...prev, [label]: name }));
      };
 
     const submitSpeakerMap = async () => {
          if (Object.keys(speakerMapInput).length === 0) {
-             setError("Please enter names for the speakers.");
+              setStepErrors(prev => ({...prev, 'transcript_to_snippets': "Please enter names for the speakers."})); // Show error near relevant step
              return;
          }
-         setError(null);
+          setStepErrors(prev => ({...prev, 'transcript_to_snippets': null})); // Clear error
 
          try {
-             const mapJsonString = JSON.stringify(speakerMapInput);
+             const mapJsonString = JSON.stringify(speakerMapInput, null, 2); // Pretty print JSON
              const blob = new Blob([mapJsonString], { type: 'application/json' });
-             const filename = `${getBaseName(snippetsForMapping[0]?.original_name)}_speaker_map.json`; // Derive name
-             const formData = new FormData();
-             formData.append('file', blob, filename);
 
-             const uploadedMapResource = await fetchApi<Resource>('/upload/json_speaker_map', {
+             // Derive filename from the input audio/transcript base name used for snippets
+              let baseName = "session"; // Default fallback
+              if (snippetsForMapping.length > 0) {
+                   // Try to get base name from the first snippet's original_name
+                   baseName = snippetsForMapping[0].original_name
+                       .replace(/_speaker_[A-Z]_snippet\.mp3$/i, '');
+              }
+              const filename = `${baseName}_speaker_map.json`; // Construct logical name
+
+             const formData = new FormData();
+             formData.append('file', blob, filename); // Use the logical filename
+
+              console.log(`Uploading speaker map as ${filename}...`);
+              const uploadedMapResource = await fetchApi<Resource>('/upload/json_speaker_map', {
                  method: 'POST',
                  body: formData,
              });
 
              if (uploadedMapResource) {
-                 fetchResources(); // Refresh list
+                 await fetchResources(); // Use await here
                  setShowSpeakerMapForm(false);
                  setSnippetsForMapping([]);
                  setSpeakerMapInput({});
-                 // Optionally select the new map resource
-                 setSelectedResourceIds(prev => new Set([...prev, uploadedMapResource.id]));
+                 // Select the new map resource
+                  setSelectedResourceIds(prev => new Set([...Array.from(prev), uploadedMapResource.id]));
              } else {
                   throw new Error("Speaker map upload endpoint did not return resource details.");
              }
          } catch (err: any) {
              console.error("Failed to submit speaker map:", err);
-             setError(`Failed to save speaker map: ${err.message}`);
+              setStepErrors(prev => ({...prev, 'transcript_to_snippets': `Failed to save speaker map: ${err.message}`}));
          }
      };
 
-
-     // --- Eligibility & Validation ---
-     const checkStepEligibility = (step: PipelineStep): boolean => {
-         if (selectedResourceIds.size === 0) return false;
+    // --- Eligibility & Validation ---
+    // checkStepEligibility remains the same
+    const checkStepEligibility = (step: PipelineStep): boolean => {
+         const currentSelectedResources = resources.filter(r => selectedResourceIds.has(r.id));
+         if (currentSelectedResources.length === 0) return false;
 
          if (step.multiInput) {
-             // Check if *at least one* resource of *each* required type is selected
-             return step.inputs.every(inputType =>
-                 selectedResources.some(r => r.type === inputType)
-             );
+              // Check if *at least one* resource of *each* required type is selected
+              return step.inputs.every(inputType =>
+                  currentSelectedResources.some(r => r.type === inputType)
+              );
          } else if (step.inputs.length === 1) {
-             // Check if *at least one* resource of the required type is selected
-             return selectedResources.some(r => r.type === step.inputs[0]);
+              // Check if *at least one* resource of the required type is selected
+              return currentSelectedResources.some(r => r.type === step.inputs[0]);
          }
-         return false; // Should not happen with valid step definition
-     };
+         return false;
+    };
 
-     // Check for potential filename mismatch for steps requiring audio+transcript
-      const getFilenameMismatchWarning = (step: PipelineStep): string | null => {
-          if (!step.multiInput || !step.inputs.includes('audio') || !step.inputs.includes('json_transcript')) {
-              return null;
-          }
-
-          const selectedAudios = selectedResources.filter(r => r.type === 'audio');
-          const selectedTranscripts = selectedResources.filter(r => r.type === 'json_transcript');
-
-          if (selectedAudios.length === 1 && selectedTranscripts.length === 1) {
-              const audioBase = getBaseName(selectedAudios[0].original_name);
-              const transcriptBase = getBaseName(selectedTranscripts[0].original_name);
-              if (audioBase !== transcriptBase) {
-                   return `Warning: Selected audio (${selectedAudios[0].original_name}) and transcript (${selectedTranscripts[0].original_name}) base names do not match.`;
-               }
-          }
-          // Could add logic for multiple selections, but becomes complex quickly
-          return null;
-      };
-
+    // getFilenameMismatchWarning adjusted for clarity
+    const getFilenameMismatchWarning = (step: PipelineStep): string | null => {
+        // ... (keep the initial checks for multiInput and required types) ...
+        if (!step.multiInput || !step.inputs.includes('audio') || !step.inputs.includes('json_transcript')) {
+            return null;
+        }
+        const currentSelectedResources = resources.filter(r => selectedResourceIds.has(r.id));
+        const selectedAudios = currentSelectedResources.filter(r => r.type === 'audio');
+        const selectedTranscripts = currentSelectedResources.filter(r => r.type === 'json_transcript');
+    
+        // Only show warning if exactly one of each is selected for simplicity
+        if (selectedAudios.length === 1 && selectedTranscripts.length === 1) {
+            const audioBase = getBaseNameForComparison(selectedAudios[0].original_name);
+            const transcriptBase = getBaseNameForComparison(selectedTranscripts[0].original_name);
+    
+            if (audioBase !== transcriptBase) {
+                return `Warning: Selected audio (<span class="math-inline">\{selectedAudios\[0\]\.original\_name\}\) and transcript \(</span>{selectedTranscripts[0].original_name}) may not match (based on names).`;
+            }
+        }
+        return null;
+    };
 
     // --- Rendering ---
-
+    // renderPreview adjusted for dark theme and showing UUID
     const renderPreview = (resource: Resource) => {
          const content = previewContent[resource.id];
          const isLoading = isLoadingPreview.has(resource.id);
 
          return (
-             <div key={resource.id} className="mb-4 p-3 border rounded bg-white shadow-sm">
-                 <h4 className="font-semibold text-sm mb-1 truncate" title={resource.original_name}>
+             // Use resource.id as key
+             <div key={resource.id} className="mb-4 p-3 border dark:border-gray-700 rounded bg-white dark:bg-gray-800 shadow-sm">
+                 {/* Display user-facing original_name */}
+                 <h4 className="font-semibold text-sm mb-1 truncate text-gray-800 dark:text-gray-100" title={resource.original_name}>
                      {resource.original_name}
                  </h4>
-                 <p className="text-xs text-gray-500 mb-2">{resource.type}</p>
-                 {isLoading && <div className="text-center p-4"><FiLoader className="animate-spin inline-block mr-2" />Loading Preview...</div>}
+                 {/* Show type and UUID */}
+                 <div className="text-xs text-gray-500 dark:text-gray-400 mb-2 flex items-center space-x-2">
+                     <span>Type: {resource.type}</span>
+                     <span className='flex items-center' title="Internal Resource ID">
+                        <span className='mr-0.5'><FiInfo size={10} /></span> ID: <code className='ml-1 text-xxs'>{resource.id.substring(0,8)}...</code>
+                     </span>
+                 </div>
+                 {isLoading && <div className="text-center p-4 text-gray-500 dark:text-gray-400"><span className="animate-spin inline-block mr-2"><FiLoader /></span>Loading Preview...</div>}
                  {!isLoading && content && (
                      <>
-                         {content.type === 'text' && <pre className="text-xs whitespace-pre-wrap break-words bg-gray-50 p-2 rounded max-h-60 overflow-y-auto">{content.data}</pre>}
-                         {content.type === 'json' && <pre className="text-xs whitespace-pre-wrap break-words bg-gray-50 p-2 rounded max-h-60 overflow-y-auto">{tryFormatJson(content.data)}</pre>}
-                         {content.type === 'audio' && content.data && <audio controls src={content.data} className="w-full"></audio>}
-                         {content.type === 'video_placeholder' && <div className="text-center p-4 text-gray-400 text-sm">Video Preview Not Available</div>}
-                         {content.type === 'unsupported' && <div className="text-center p-4 text-red-500 text-sm">{content.error || 'Preview not available'}</div>}
+                         {content.type === 'text' && <pre className="text-xs whitespace-pre-wrap break-words bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 p-2 rounded max-h-60 overflow-y-auto">{content.data}</pre>}
+                         {content.type === 'json' && <pre className="text-xs whitespace-pre-wrap break-words bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 p-2 rounded max-h-60 overflow-y-auto">{tryFormatJson(content.data)}</pre>}
+                         {/* Use resource.id for audio src URL */}
+                         {content.type === 'audio' && content.data && <audio controls src={content.data} className="w-full h-10"></audio>}
+                         {content.type === 'video_placeholder' && <div className="text-center p-4 text-gray-400 dark:text-gray-500 text-sm">Video Preview Not Available</div>}
+                         {content.type === 'unsupported' && <div className="text-center p-4 text-red-600 dark:text-red-400 text-sm">{content.error || 'Preview not available'}</div>}
                      </>
                  )}
-                {!isLoading && !content && <div className="text-center p-4 text-gray-400 text-sm">Select to load preview.</div> }
-
+                {!isLoading && !content && <div className="text-center p-4 text-gray-400 dark:text-gray-500 text-sm">Select resource to load preview.</div> }
              </div>
          );
      };
 
+    // tryFormatJson remains the same
     const tryFormatJson = (jsonString: string | null): string => {
         if (!jsonString) return '';
         try {
             return JSON.stringify(JSON.parse(jsonString), null, 2);
         } catch {
-            return jsonString; // Return original if parsing fails
+            return jsonString;
         }
     };
 
-    // --- Main JSX Structure ---
+    // --- Main JSX Structure (with dark theme classes) ---
     return (
-        <div className="flex h-screen bg-gray-100">
+        // Main container with dark theme base
+        <div className="flex h-screen bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
             {/* --- Resources Panel (Left) --- */}
-            <div className="w-1/4 p-4 border-r bg-white flex flex-col overflow-hidden">
-                <h2 className="text-xl font-semibold mb-3">Resources</h2>
+            <div className="w-1/4 md:w-1/5 lg:w-1/4 p-4 border-r dark:border-gray-700 bg-white dark:bg-gray-800 flex flex-col overflow-hidden">
+                <h2 className="text-xl font-semibold mb-3 text-gray-800 dark:text-gray-100">Resources</h2>
+                {/* Buttons with dark styles */}
                 <div className="flex space-x-2 mb-3">
-                    <button
+                     <button
                         onClick={handleUploadClick}
-                        className="flex-1 bg-blue-500 hover:bg-blue-600 text-white px-3 py-1.5 rounded text-sm inline-flex items-center justify-center"
-                        title="Upload Files"
-                    >
-                        <FiUploadCloud className="mr-1" /> Upload
+                        className="flex-1 bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white px-3 py-1.5 rounded text-sm inline-flex items-center justify-center transition-colors duration-150"
+                        title="Upload Files" >
+                        <span className="mr-1"><FiUploadCloud /></span> Upload
                     </button>
-                     {/* Hidden file input */}
-                     <input
-                         type="file"
-                         multiple
-                         ref={fileInputRef}
-                         onChange={handleFileSelected}
-                         className="hidden"
-                         accept=".mp4,.mov,.avi,.mkv,.webm,.mp3,.wav,.ogg,.m4a,.flac,.json,.txt" // Adjust accepted types
-                     />
+                     <input type="file" multiple ref={fileInputRef} onChange={handleFileSelected} className="hidden" accept=".mp4,.mov,.avi,.mkv,.webm,.mp3,.wav,.ogg,.m4a,.flac,.json,.txt"/>
                     <button
                         onClick={handleDownloadSelected}
                         disabled={selectedResources.length === 0}
-                        className="flex-1 bg-green-500 hover:bg-green-600 text-white px-3 py-1.5 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center"
-                        title="Download Selected"
-                    >
-                        <FiDownload className="mr-1" /> Download
+                        className="flex-1 bg-green-600 hover:bg-green-700 dark:bg-green-500 dark:hover:bg-green-600 text-white px-3 py-1.5 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center transition-colors duration-150"
+                        title="Download Selected" >
+                        <span className="mr-1"><FiDownload /></span> Download
                     </button>
                     <button
                         onClick={handleDeleteSelected}
                         disabled={selectedResources.length === 0}
-                        className="flex-1 bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center"
-                         title="Delete Selected"
-                   >
-                         <FiTrash2 className="mr-1" /> Delete
+                         className="flex-1 bg-red-600 hover:bg-red-700 dark:bg-red-500 dark:hover:bg-red-600 text-white px-3 py-1.5 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center transition-colors duration-150"
+                         title="Delete Selected" >
+                         <span className="mr-1"><FiTrash2 /></span> Delete
                     </button>
                 </div>
 
-                 {/* Dropzone Area */}
+                 {/* Dropzone Area with dark styles */}
                  <div
                     {...getRootProps()}
-                    className={`flex-grow overflow-y-auto border-2 border-dashed rounded p-2 ${isDragActive ? 'border-blue-500 bg-blue-50' : 'border-gray-300'}`}
+                     className={`flex-grow overflow-y-auto border-2 border-dashed rounded p-2 transition-colors duration-150 ${isDragActive ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30' : 'border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500'}`}
                  >
-                    <input {...getInputProps()} />
-                     {isLoadingResources && <div className="text-center p-4 text-gray-500">Loading...</div>}
+                    <input {...getInputProps()} type="file" />
+                     {isLoadingResources && <div className="text-center p-4 text-gray-500 dark:text-gray-400">Loading...</div>}
+                     {/* Messages with dark styles */}
                      {!isLoadingResources && resources.length === 0 && !isDragActive && (
-                         <p className="text-center text-gray-400 p-4">No resources found. Drag & drop files here or use the Upload button.</p>
+                         <p className="text-center text-gray-400 dark:text-gray-500 p-4">No resources found. Drag & drop files here or use the Upload button.</p>
                      )}
                       {!isLoadingResources && isDragActive && (
-                          <p className="text-center text-blue-500 p-4 font-semibold">Drop files here...</p>
+                          <p className="text-center text-blue-600 dark:text-blue-400 p-4 font-semibold">Drop files here...</p>
                       )}
+                     {/* Resource List Items with dark styles */}
                      {!isLoadingResources && resources.length > 0 && (
                          <ul className="space-y-1">
                              {resources.map(res => (
                                  <li
-                                     key={res.id}
+                                     key={res.id} // Use UUID as key
                                      onClick={() => toggleResourceSelection(res.id)}
-                                     className={`p-2 text-sm rounded cursor-pointer flex justify-between items-center group ${
-                                         selectedResourceIds.has(res.id) ? 'bg-blue-100 ring-1 ring-blue-400' : 'hover:bg-gray-100'
+                                     className={`p-2 text-sm rounded cursor-pointer flex justify-between items-center group transition-colors duration-100 ${
+                                         selectedResourceIds.has(res.id)
+                                         ? 'bg-blue-100 dark:bg-blue-900 text-blue-900 dark:text-blue-100 ring-1 ring-blue-400 dark:ring-blue-600'
+                                         : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
                                      }`}
                                  >
+                                      {/* Display user-facing original_name */}
                                      <span className="truncate flex-grow mr-2" title={res.original_name}>
                                          {res.original_name}
                                      </span>
-                                     <span className="text-xs text-gray-500 mr-2 flex-shrink-0">{res.type}</span>
+                                     <span className="text-xs text-gray-500 dark:text-gray-400 mr-2 flex-shrink-0">{res.type}</span>
                                      <button
                                          onClick={(e) => handleDeleteClick(e, res)}
-                                         className="text-red-500 hover:text-red-700 opacity-0 group-hover:opacity-100 transition-opacity p-1"
+                                         className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity p-1"
                                          title="Delete this resource"
                                       >
-                                         <FiTrash2 />
+                                         <FiTrash2 size={14}/>
                                      </button>
                                  </li>
                              ))}
                          </ul>
                      )}
                 </div>
-                 {uploadError && <div className="mt-2 p-2 text-xs text-red-700 bg-red-100 rounded whitespace-pre-wrap">{uploadError}</div>}
+                 {/* Upload Progress/Error with dark styles */}
+                 {uploadProgress !== null && <div className="mt-2 text-xs text-center text-blue-600 dark:text-blue-400">Uploading... {Math.round(uploadProgress)}%</div>}
+                 {uploadError && <div className="mt-2 p-2 text-xs text-red-700 dark:text-red-200 bg-red-100 dark:bg-red-900/50 border border-red-300 dark:border-red-700 rounded whitespace-pre-wrap">{uploadError}</div>}
             </div>
 
              {/* --- Preview Panel (Middle) --- */}
-             <div className="w-1/4 p-4 border-r bg-gray-50 overflow-y-auto">
-                 <h2 className="text-xl font-semibold mb-3">Preview</h2>
-                 {selectedResources.length === 0 && <p className="text-center text-gray-400 mt-10">Select a resource to preview</p>}
+             <div className="w-1/4 md:w-2/5 lg:w-1/3 p-4 border-r dark:border-gray-700 bg-gray-50 dark:bg-gray-850 overflow-y-auto"> {/* Slightly darker bg */}
+                 <h2 className="text-xl font-semibold mb-3 text-gray-800 dark:text-gray-100">Preview</h2>
+                  {selectedResources.length === 0 && <p className="text-center text-gray-400 dark:text-gray-500 mt-10">Select a resource to preview</p>}
+                 {/* renderPreview handles its own dark styles */}
                  {selectedResources.map(renderPreview)}
             </div>
 
 
             {/* --- Pipeline Panel (Right) --- */}
-            <div className="flex-grow p-4 flex flex-col items-center overflow-y-auto">
-                <h2 className="text-xl font-semibold mb-3">Processing Pipeline</h2>
+            <div className="flex-grow p-4 flex flex-col items-center overflow-y-auto bg-gray-100 dark:bg-gray-900">
+                <h2 className="text-xl font-semibold mb-3 text-gray-800 dark:text-gray-100">Processing Pipeline</h2>
 
-                {/* Global Error Display */}
-                {error && <div className="w-full max-w-2xl mb-4 p-3 bg-red-100 text-red-700 rounded border border-red-300 text-sm">{error}</div>}
+                {/* Global Error Display with dark styles */}
+                {error && <div className="w-full max-w-3xl mb-4 p-3 bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-200 rounded border border-red-300 dark:border-red-700 text-sm">{error}</div>}
 
 
-                {/* API Key Inputs */}
-                 <div className="w-full max-w-2xl mb-6 p-4 border rounded bg-white shadow-sm">
-                    <h3 className="text-lg font-medium mb-2">API Keys (Required for some steps)</h3>
-                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {/* API Key Inputs with dark styles */}
+                 <div className="w-full max-w-3xl mb-6 p-4 border dark:border-gray-700 rounded bg-white dark:bg-gray-800 shadow-sm">
+                    <h3 className="text-lg font-medium mb-3 text-gray-800 dark:text-gray-100">API Keys <span className='text-xs text-gray-500 dark:text-gray-400'>(Required for some steps)</span></h3>
+                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                             <label htmlFor="assemblyai-key" className="block text-sm font-medium text-gray-700 mb-1">AssemblyAI Key</label>
+                              <label htmlFor="assemblyai-key" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">AssemblyAI Key</label>
                              <input
-                                 type="password" // Use password type for keys
+                                 type="password"
                                  id="assemblyai-key"
                                  placeholder="Enter AssemblyAI API Key"
                                  value={apiKeys.assemblyAi || ''}
                                  onChange={(e) => setApiKeys(prev => ({ ...prev, assemblyAi: e.target.value }))}
-                                 className="w-full p-1.5 border border-gray-300 rounded text-sm"
+                                  className="w-full p-1.5 border border-gray-300 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-500 dark:focus:border-blue-500"
                              />
                          </div>
                          <div>
-                              <label htmlFor="gemini-key" className="block text-sm font-medium text-gray-700 mb-1">Google Gemini Key</label>
+                               <label htmlFor="gemini-key" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Google Gemini Key</label>
                              <input
                                  type="password"
                                  id="gemini-key"
                                  placeholder="Enter Google Gemini API Key"
                                  value={apiKeys.googleGemini || ''}
                                  onChange={(e) => setApiKeys(prev => ({ ...prev, googleGemini: e.target.value }))}
-                                 className="w-full p-1.5 border border-gray-300 rounded text-sm"
+                                 className="w-full p-1.5 border border-gray-300 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-500 dark:focus:border-blue-500"
                              />
                          </div>
                      </div>
                  </div>
 
-                {/* Stop Button */}
+                {/* Stop Button with dark styles */}
                 {(currentlyProcessing || processingQueue.length > 0) && (
                     <button
                         onClick={handleStopProcessing}
-                         className="mb-4 bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-1.5 rounded text-sm inline-flex items-center justify-center"
-                    >
-                        <FiStopCircle className="mr-1" /> Stop Queue ({processingQueue.length} pending)
+                          className="mb-4 bg-yellow-500 hover:bg-yellow-600 dark:bg-yellow-600 dark:hover:bg-yellow-700 text-white px-4 py-1.5 rounded text-sm inline-flex items-center justify-center transition-colors duration-150" >
+                        <span className="mr-1"><FiStopCircle/></span> Stop Queue ({processingQueue.length} pending)
                     </button>
                  )}
 
-                {/* Pipeline Steps */}
-                <div className="w-full max-w-2xl space-y-4">
+                {/* Pipeline Steps with dark styles */}
+                <div className="w-full max-w-3xl space-y-4">
                      {PIPELINE_STEPS.map(step => {
                          const isEligible = checkStepEligibility(step);
-                         const isProcessingThisStep = currentlyProcessing?.stepId === step.id || processingQueue.some(j => j.stepId === step.id);
+                         const jobIsActive = currentlyProcessing?.stepId === step.id;
+                         const jobIsInQueue = processingQueue.some(j => j.stepId === step.id);
+                         const isProcessingThisStep = jobIsActive || jobIsInQueue;
                          const mismatchWarning = getFilenameMismatchWarning(step);
+                         const stepError = stepErrors[step.id];
 
                          return (
-                             <div key={step.id} className={`p-4 border rounded bg-white shadow-sm ${isEligible ? 'border-blue-300' : 'border-gray-200'}`}>
-                                 <h3 className="text-lg font-medium mb-1">{step.name}</h3>
-                                 <p className="text-xs text-gray-500 mb-2">
+                              <div key={step.id} className={`p-4 border dark:border-gray-700 rounded bg-white dark:bg-gray-800 shadow-sm transition-all duration-150 ${isEligible ? 'border-blue-300 dark:border-blue-700' : 'border-gray-200 dark:border-gray-700'}`}>
+                                  <h3 className="text-lg font-medium mb-1 text-gray-800 dark:text-gray-100">{step.name}</h3>
+                                 <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
                                      Input: {step.inputs.join(', ')} &rarr; Output: {step.output}
                                       {step.requiresKeys && ` (Requires: ${step.requiresKeys.join(', ')})`}
                                  </p>
-                                 {mismatchWarning && isEligible && (
-                                     <p className="text-xs text-yellow-700 bg-yellow-100 p-1 rounded mb-2 inline-flex items-center">
-                                         <FiAlertTriangle className="mr-1 flex-shrink-0" /> {mismatchWarning}
+                                 {/* Warnings and Errors with dark styles */}
+                                 {mismatchWarning && isEligible && !stepError && (
+                                     <p className="text-xs text-yellow-800 dark:text-yellow-200 bg-yellow-100 dark:bg-yellow-900/50 p-1.5 rounded mb-2 inline-flex items-center border border-yellow-300 dark:border-yellow-700">
+                                         <span className="mr-1 flex-shrink-0"><FiAlertTriangle  /></span>{mismatchWarning}
                                      </p>
                                  )}
+                                 {stepError && (
+                                     <p className="text-xs text-red-700 dark:text-red-200 bg-red-100 dark:bg-red-900/50 p-1.5 rounded mb-2 inline-flex items-center border border-red-300 dark:border-red-700">
+                                          <span className="mr-1 flex-shrink-0"><FiAlertTriangle /></span> {stepError}
+                                      </p>
+                                 )}
+                                  {/* Start Button with dark styles */}
                                  <button
                                      onClick={() => handleStartProcessing(step)}
                                      disabled={!isEligible || isProcessingThisStep}
-                                     className={`w-full bg-indigo-500 hover:bg-indigo-600 text-white px-4 py-1.5 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center ${isProcessingThisStep ? 'bg-gray-400 hover:bg-gray-400' : ''}`}
-                                 >
-                                     {isProcessingThisStep ? (
-                                         <>
-                                             <FiLoader className="animate-spin mr-2" /> Processing...
-                                         </>
+                                      className={`w-full bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white px-4 py-1.5 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center transition-colors duration-150 ${isProcessingThisStep ? 'bg-gray-400 dark:bg-gray-600 hover:bg-gray-400 dark:hover:bg-gray-600 cursor-wait' : ''}`} >
+                                     {jobIsActive ? (
+                                         <> <span className="animate-spin mr-2"><FiLoader  /></span> Processing... </>
+                                     ) : jobIsInQueue ? (
+                                          <> <span className="animate-spin mr-2"><FiLoader  /></span> Queued... </>
                                      ) : (
                                          'Start Step'
                                      )}
@@ -875,28 +953,35 @@ function App() {
                     })}
                 </div>
 
-                {/* Speaker Map Form */}
-                {showSpeakerMapForm && (
-                    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-40">
-                         <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-lg max-h-[80vh] overflow-y-auto">
-                            <h2 className="text-xl font-semibold mb-4">Identify Speakers</h2>
-                             <p className="text-sm text-gray-600 mb-4">Listen to the snippets and enter the name for each speaker label.</p>
+                {/* Speaker Map Form Modal with dark styles */}
+                 {showSpeakerMapForm && (
+                     <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center p-4 z-40">
+                          <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-lg max-h-[80vh] overflow-y-auto">
+                             <h2 className="text-xl font-semibold mb-4 text-gray-900 dark:text-gray-100">Identify Speakers</h2>
+                              <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">Listen to the snippets and enter the name for each speaker label.</p>
+                             {/* Display step error here too */}
+                              {stepErrors['transcript_to_snippets'] && (
+                                   <p className="text-xs text-red-700 dark:text-red-200 bg-red-100 dark:bg-red-900/50 p-1.5 rounded mb-3 inline-flex items-center border border-red-300 dark:border-red-700">
+                                       <span className="mr-1 flex-shrink-0"><FiAlertTriangle  /></span> {stepErrors['transcript_to_snippets']}
+                                   </p>
+                               )}
                              <div className="space-y-3">
                                  {snippetsForMapping.map(snippet => {
-                                     // Extract speaker label (e.g., 'A', 'B') from filename heuristic
                                      const match = snippet.original_name.match(/_speaker_([A-Z])_/i);
                                      const label = match ? match[1].toUpperCase() : 'Unknown';
                                       return (
-                                          <div key={snippet.id} className="flex items-center space-x-3 border-b pb-2">
-                                              <span className="font-mono font-bold w-8 text-center">{label}:</span>
+                                          <div key={snippet.id} className="flex items-center space-x-3 border-b dark:border-gray-700 pb-3">
+                                               <label htmlFor={`speaker-input-${label}`} className="font-mono font-bold w-8 text-center text-gray-700 dark:text-gray-300">{label}:</label>
                                               <input
                                                   type="text"
+                                                  id={`speaker-input-${label}`}
                                                   placeholder="Enter Speaker Name"
                                                   value={speakerMapInput[label] || ''}
                                                   onChange={(e) => handleSpeakerNameChange(label, e.target.value)}
-                                                  className="flex-grow p-1.5 border border-gray-300 rounded text-sm"
+                                                   className="flex-grow p-1.5 border border-gray-300 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-500 dark:focus:border-blue-500"
                                               />
-                                              <audio controls src={`${API_BASE_URL}/download/snippet/${snippet.id}`} className="h-8"></audio>
+                                              {/* Use UUID for audio source */}
+                                               <audio controls src={`${API_BASE_URL}/download/snippet/${snippet.id}`} className="h-8"></audio>
                                           </div>
                                       );
                                   })}
@@ -904,50 +989,47 @@ function App() {
                              <div className="mt-6 flex justify-end space-x-3">
                                  <button
                                       onClick={() => setShowSpeakerMapForm(false)}
-                                      className="bg-gray-300 hover:bg-gray-400 text-black px-4 py-1.5 rounded text-sm"
-                                  >
+                                       className="bg-gray-300 hover:bg-gray-400 dark:bg-gray-600 dark:hover:bg-gray-500 text-black dark:text-white px-4 py-1.5 rounded text-sm transition-colors duration-150" >
                                       Cancel
                                   </button>
                                   <button
                                       onClick={submitSpeakerMap}
-                                      className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-1.5 rounded text-sm"
-                                  >
+                                       className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white px-4 py-1.5 rounded text-sm transition-colors duration-150" >
                                       Save Speaker Map
                                   </button>
                               </div>
-                         </div>
-                    </div>
-                 )}
-
-
-                 {/* Delete Confirmation Modal */}
-                 {showDeleteConfirmModal && (
-                     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-                         <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-md">
-                             <h2 className="text-lg font-semibold mb-4">Confirm Deletion</h2>
-                             <p className="text-sm text-gray-700 mb-6">
-                                 {resourceToDelete
-                                     ? `Are you sure you want to permanently delete "${resourceToDelete.original_name}"?`
-                                     : `Are you sure you want to permanently delete the ${selectedResources.length} selected resource(s)?`}
-                                 <br />This action cannot be undone.
-                            </p>
-                             <div className="flex justify-end space-x-3">
-                                 <button
-                                     onClick={cancelDeletion}
-                                     className="bg-gray-300 hover:bg-gray-400 text-black px-4 py-1.5 rounded text-sm"
-                                 >
-                                     Cancel
-                                 </button>
-                                 <button
-                                     onClick={confirmDeletion}
-                                     className="bg-red-500 hover:bg-red-600 text-white px-4 py-1.5 rounded text-sm"
-                                 >
-                                     Delete
-                                 </button>
-                             </div>
-                         </div>
+                          </div>
                      </div>
-                 )}
+                  )}
+
+
+                 {/* Delete Confirmation Modal with dark styles */}
+                  {showDeleteConfirmModal && (
+                      <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center p-4 z-50">
+                          <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-md">
+                              <h2 className="text-lg font-semibold mb-4 text-gray-900 dark:text-gray-100">Confirm Deletion</h2>
+                              <p className="text-sm text-gray-700 dark:text-gray-300 mb-6">
+                                  {resourceToDelete
+                                      ? <>Are you sure you want to permanently delete <strong className='font-medium'>"{resourceToDelete.original_name}"</strong>?</>
+                                      : <>Are you sure you want to permanently delete the <strong className='font-medium'>{selectedResources.length}</strong> selected resource(s)?</>
+                                  }
+                                  <br />This action cannot be undone.
+                             </p>
+                              <div className="flex justify-end space-x-3">
+                                  <button
+                                      onClick={cancelDeletion}
+                                       className="bg-gray-300 hover:bg-gray-400 dark:bg-gray-600 dark:hover:bg-gray-500 text-black dark:text-white px-4 py-1.5 rounded text-sm transition-colors duration-150" >
+                                      Cancel
+                                  </button>
+                                  <button
+                                      onClick={confirmDeletion}
+                                       className="bg-red-600 hover:bg-red-700 dark:bg-red-500 dark:hover:bg-red-600 text-white px-4 py-1.5 rounded text-sm transition-colors duration-150" >
+                                      Delete
+                                  </button>
+                              </div>
+                          </div>
+                      </div>
+                  )}
 
             </div> {/* End Pipeline Panel */}
         </div> // End Main Flex Container
