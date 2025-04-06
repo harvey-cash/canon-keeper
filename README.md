@@ -3,9 +3,7 @@
 Canon Keeper processes video recordings of Tabletop RPG (TTRPG) sessions.
 It extracts audio, transcribes, generates recaps, and generally helps players and GMs maintain focus on the "in-universe" series of events.
 
-Icon | Screenshot
---------:|:---------
-![Icon](./icon.png "Icon") | ![Screenshot](./screenshot.png "Screenshot")
+![Screenshot](./screenshot.png "Screenshot")
 
 ## Requirements
 
@@ -57,7 +55,7 @@ Icon | Screenshot
 ```bash
 npm run build
 ```
-Should create a `CanonKeeper.exe` at `server/dist`
+Should create a `CanonKeeper` folder at `server/dist` with an executable and _internal sub-folder. When `CanonKeeper.exe` is launched, it will also create a `resources` folder where the application is located.
 
 ## Tech Stack
 
