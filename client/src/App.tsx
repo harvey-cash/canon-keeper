@@ -147,14 +147,14 @@ const getBaseNameForComparison = (filename: string | undefined): string => {
   if (!filename) return '';
   // Remove known suffixes first, then the final extension
   return filename
-      .replace(/_audio\.mp3$/i, '')
-      .replace(/_transcript\.json$/i, '')
-      .replace(/_session_script\.txt$/i, '')
-      .replace(/_recap\.txt$/i, '')
-      .replace(/_summary\.txt$/i, '')
-      .replace(/_prompt\.txt$/i, '')
-      .replace(/_snippet\.mp3$/i, '')
-      .replace(/_speaker_map\.json$/i, '')
+      .replace('_audio', '')
+      .replace('_transcript', '')
+      .replace('_session_script', '')
+      .replace('_recap', '')
+      .replace('_summary', '')
+      .replace('_prompt', '')
+      .replace('_snippet', '')
+      .replace('_speaker_map', '')
       .replace(/\.\w+$/, ''); // Remove final extension
 };
 
@@ -719,7 +719,7 @@ function App() {
             const transcriptBase = getBaseNameForComparison(selectedTranscripts[0].original_name);
     
             if (audioBase !== transcriptBase) {
-                return `Warning: Selected audio (<span class="math-inline">\{selectedAudios\[0\]\.original\_name\}\) and transcript \(</span>{selectedTranscripts[0].original_name}) may not match (based on names).`;
+              return `Warning: Selected audio (${selectedAudios[0].original_name}) and transcript (${selectedTranscripts[0].original_name}) may not match (based on names).`;
             }
         }
         return null;
@@ -853,7 +853,7 @@ function App() {
             </div>
 
              {/* --- Preview Panel (Middle) --- */}
-             <div className="w-1/4 md:w-2/5 lg:w-1/3 p-4 border-r dark:border-gray-700 bg-gray-50 dark:bg-gray-850 overflow-y-auto"> {/* Slightly darker bg */}
+             <div className="w-1/4 md:w-2/5 lg:w-1/3 p-4 border-r dark:border-gray-700 dark:bg-gray-850 overflow-y-auto"> {/* Slightly darker bg */}
                  <h2 className="text-xl font-semibold mb-3 text-gray-800 dark:text-gray-100">Preview</h2>
                   {selectedResources.length === 0 && <p className="text-center text-gray-400 dark:text-gray-500 mt-10">Select a resource to preview</p>}
                  {/* renderPreview handles its own dark styles */}
@@ -955,7 +955,7 @@ function App() {
 
                 {/* Speaker Map Form Modal with dark styles */}
                  {showSpeakerMapForm && (
-                     <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center p-4 z-40">
+                     <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-40">
                           <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-lg max-h-[80vh] overflow-y-auto">
                              <h2 className="text-xl font-semibold mb-4 text-gray-900 dark:text-gray-100">Identify Speakers</h2>
                               <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">Listen to the snippets and enter the name for each speaker label.</p>
