@@ -1,0 +1,56 @@
+name: Build Canon Keeper on PR
+
+on:
+  pull_request:
+    branches:
+      - develop
+      - master
+      - 'feature/**' # Matches branches like feature/new-thing, feature/auth/fix
+
+jobs:
+  build-windows:
+    name: Build on Windows
+    runs-on: windows-latest # Use the latest Windows runner
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4 # Checks out your code
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13' # Specify the major.minor version
+
+      # Although the build command is npm-based, include Python dependencies
+      # in case the build script or related tooling requires them.
+      # Skip virtual environment creation as Actions provide isolated environments.
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+        shell: bash
+
+      # NVM isn't typically needed in Actions; setup-node handles version management.
+      - name: Set up Node.js (LTS)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*' # Use the latest Long Term Support version
+          cache: 'npm' # Enable caching for npm dependencies
+          cache-dependency-path: client/package-lock.json # Path to lock file relative to root
+
+      - name: Install Node.js dependencies
+        run: npm install
+        working-directory: ./client # Run npm install inside the client directory
+
+      - name: Run build script
+        run: npm run build
+        working-directory: . # Run npm run build from the root directory
+        # Add environment variables here if the build script needs them
+        # env:
+        #   SOME_ENV_VAR: ${{ secrets.SOME_SECRET }}
+
+      # Optional: Upload the build artifact for inspection
+      # The README states the build output is in server/dist
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CanonKeeper-Build-Windows
+          path: server/dist # Path to the build output folder
