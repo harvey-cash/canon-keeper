@@ -697,7 +697,7 @@ async def serve_index():
 
 def run_server():
     """Starts the Uvicorn server."""
-    uvicorn.run(f"{Path(__file__).stem}:app", host="127.0.0.1", port=8000, log_level="info", reload=True) # Use reload=True for dev
+    uvicorn.run(app=app, host="127.0.0.1", port=8000, log_level="info", reload=False) # Use reload=True for dev
 
 
 def launch_client():
@@ -705,33 +705,28 @@ def launch_client():
     url = "http://127.0.0.1:8000"
     print(f"Attempting to open browser at {url}")
     try:
-        # Give server a moment to start
-        threading.Timer(1.5, lambda: webbrowser.open(url)).start()
+        webbrowser.open(url)
     except Exception as e:
         print(f"Could not automatically open browser: {e}. Please manually navigate to {url}")
 
 
 if __name__ == "__main__":
     print("Initializing Canon Keeper Server...")
+    
     # Ensure resource directories exist on startup
     for resource_type in ResourceType:
         _get_resource_dir(resource_type).mkdir(parents=True, exist_ok=True)
     print(f"Resource directory base: {RESOURCE_BASE_DIR}")
 
-    # Start server directly for easier debugging during development
-    # To run in background thread like before, uncomment the threading code
-    # server_thread = threading.Thread(target=run_server, daemon=True)
-    # server_thread.start()
-    # launch_client()
-    # try:
-    #     input("Server is running. Press Enter in this console window to stop...\n")
-    # except KeyboardInterrupt:
-    #     print("\nCtrl+C detected.")
-    # finally:
-    #     print("Stopping server...")
-    #     print("Server stopped.")
+    # Server on background thread so that we can keep the main thread alive by waiting for input
+    server_thread = threading.Thread(target=run_server, daemon=True, name="CanonKeeperServer") # thread will exit when main exits
+    server_thread.start()
 
-    # Run server directly in main thread (more common for dev)
-    print("Starting server directly. Press Ctrl+C to stop.")
-    launch_client() # Try opening browser
-    run_server() # This will block until Ctrl+C
+    launch_client()
+
+    try:
+        input("Server is running. Press Enter in this console window to stop...\n")
+    except KeyboardInterrupt:
+        print("\nCtrl+C detected.")
+    finally:
+        print("Stopping server...")

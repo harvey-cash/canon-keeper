@@ -59,6 +59,7 @@ pyinstaller_command = [
     f"src{path_separator}src",
     "--onedir",
     "--clean",
+    "-y", # Overwrite any existing build files
     # "--windowed", # Optional
     ENTRY_SCRIPT,  # Entry script relative to CWD (SERVER_DIR)
 ]

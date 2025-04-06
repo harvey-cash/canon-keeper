@@ -197,3 +197,4 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+server/web_content/
