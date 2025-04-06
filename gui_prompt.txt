@@ -1,0 +1,45 @@
+main.tsx:
+
+```
+// client/src/main.tsx
+import React from "react";
+import ReactDOM from "react-dom/client";
+import "./index.css";
+import App from "./App.tsx";
+
+const rootElement = document.getElementById("root");
+
+// Check if the element was actually found
+if (!rootElement) {
+  // If not found, throw an error - the app can't mount!
+  throw new Error(
+    "Failed to find the root element with ID 'root'. Check your index.html.",
+  );
+}
+
+// If we get here, rootElement is guaranteed to be an HTMLElement
+const root = ReactDOM.createRoot(rootElement);
+
+root.render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>,
+);
+
+```
+
+Now write the Vite React Typescript TailwindCSS App.tsx frontend which interacts with the backend.
+
+There should be a resources panel on one side of the page which displays an organised list of all resources present on the server. 
+
+Adjacent to the resources panel should be Upload, Download, and Delete buttons. The user should be able to click the Upload button, or drag files straight onto the panel, to upload them. The user should be able to click listed resources to select / deselect them (multiple can be selected at once). When the Download button is clicked, all currently selected resources should be downloaded. After downloaded all resources should be deselected. When the Delete button is clicked, all currently selected resources should be deleted off the server. An "are you sure?"  warning modal should display for the user to confirm deletion before deletion actually occurs. Deleting a resource should remove it from the list.
+
+Somewhere next to the resources panel should be a preview panel. When resources are selected, their content is shown in the preview panel. If multiple resources are selected, they are arranged vertically in the preview and can be scrolled between. Each preview should have the title and file format at its top. Text should be shown as plaintext. Audio should show a simple audio control UI (play, pause, stop) and allow for listening to the audio. Video should only show an empty template (an integrated video player is out of scope for now).
+
+The other side of the page should show a simple flow-chart representation of the video2recap pipeline, with a panel for each step (e.g. `video2audio`, `audio2transcript`, etc.) Adjacent to each panel should be Start and Stop buttons. When a resource is selected on the resources panel, eligible step panels should highlight and their Start button becomes clickable. E.g. when a video is selected, `video2audio` becomes clickable. Clicking a Start button calls the corresponding endpoint with the selected resource arguments, and a processing animation replaces the Start button until the endpoint returns. If multiple eligible resources were selected,  a processing animation is displayed for each and the endpoint is run sequentially in a loop until no processing animations remain and all resources have been processed. If the Stop button is clicked, the queue is cancelled. Each time the processing endpoint finishes generating an output resource, the resources list panel is refreshed to show the new resource and is selected so that it appears in the preview panel.
+
+Steps which take audio and a transcript should have a simple validation check on whether the transcript corresponds to the audio. This can simply be a filename check (e.g. does everything before "_transcript.json" match everything before "_audio.mp3"?). A minimal yellow warning should display if they do not correspond, but the user should not be prevented from calling the step anyway.
+
+For `transcript2snippets`, when the pipeline completes all audio snippets should appear in the resources list as usual and be selected so that they appear in the preview panel for the user to listen to. Additionally, a text input form should appear for the user to enter the names of each speaker. There should be a Submit button at the bottom. When clicked, the user's mapping of { "label": "name" } should be uploaded to the snippet JSON upload endpoint and thus appear in the resources list panel.
+
+Be minimal, and avoid over-commenting trivially obvious detail. Use type hints and write clean code. Adopt modern TypeScript conventions. Extract sub functions where it would reduce duplication and make the code cleaner. Prefer guard pattern (early return) over deep nesting. Prefer short functions. Style in a clean and modern fashion using Tailwind CSS.

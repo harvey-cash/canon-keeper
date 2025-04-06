@@ -3,6 +3,10 @@
 Canon Keeper processes video recordings of Tabletop RPG (TTRPG) sessions.
 It extracts audio, transcribes, generates recaps, and generally helps players and GMs maintain focus on the "in-universe" series of events.
 
+Icon | Screenshot
+--------:|:---------
+![Icon](./icon.png "Icon") | ![Screenshot](./screenshot.png "Screenshot")
+
 ## Requirements
 
 - Install [Python: v3.13.2](https://www.python.org/downloads/release/python-3132/)

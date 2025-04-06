@@ -29,6 +29,21 @@ def get_application_path():
     return application_path
 
 
+def resource_path(relative_path):
+    """Get absolute path to resource, works for dev and for PyInstaller"""
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        # The base path is the root of the extracted folder
+        base_path = sys._MEIPASS
+    except Exception:
+        # sys._MEIPASS is not defined, so running in normal Python environment
+        # Use the directory of the main script file (.py) as the base
+        base_path = os.path.abspath(os.path.dirname(__file__))
+
+    # Join the base path with the relative path provided
+    return os.path.join(base_path, relative_path)
+
+
 def prepare_file_dialogs():
     """Initializes the Tkinter root window for file dialogs."""
     root = tk.Tk()

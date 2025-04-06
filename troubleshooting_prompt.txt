@@ -1,0 +1,21 @@
+- Sometimes, on selecting audio in the resources list, or playing audio in the preview panel this exception shows in the server console:
+```
+INFO:     127.0.0.1:56533 - "GET /download/audio/ac317578-e125-478d-a3a8-da4a34ca3398 HTTP/1.1" 206 Partial Content
+Exception in callback _ProactorBasePipeTransport._call_connection_lost()
+handle: <Handle _ProactorBasePipeTransport._call_connection_lost()>
+Traceback (most recent call last):
+  File "C:\Program Files\Python313\Lib\asyncio\events.py", line 89, in _run
+    self._context.run(self._callback, *self._args)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Program Files\Python313\Lib\asyncio\proactor_events.py", line 165, in _call_connection_lost
+    self._sock.shutdown(socket.SHUT_RDWR)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+ConnectionResetError: [WinError 10054] An existing connection was forcibly closed by the remote host
+```
+The audio works and plays fine. Resolve this error log without changing the already working functionality.
+
+- The resources are given arbitrary unique strings which look unique, but ugly to the user, and there is no association with the original file name they were generated from. This includes uploaded resources. Change so that uploaded resources preserve their file name in the list and preview, and the unique IDs are used internally but only shown to the user as additional info in the preview panel.
+
+- The frontend has white text font on white backgrounds. Style with a consistent dark theme throughout which looks modern and ensures text is readable.
+
+- When an audio file is selected and Step 2 Audio To Transcript is Started, the error dialog shows [object Object] on the frontend and the server log shows "INFO:     127.0.0.1:56910 - "POST /process/audio_to_transcript HTTP/1.1" 422 Unprocessable Content". Make sure that exceptions have their error text correctly propagated to frontend and console so that the user can read what has gone wrong. Why is this exception being thrown? Fix it. I can verify the audio does exist in the server resources directory and the assembly AI key is correct.
