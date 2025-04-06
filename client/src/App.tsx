@@ -247,7 +247,7 @@ function App() {
              const downloadUrl = `${API_BASE_URL}/download/${resource.type}/${resource.id}`;
 
              try {
-                 if (resource.type.startsWith('text/') || resource.type.startsWith('json_')) {
+                 if (resource.type.startsWith('text_') || resource.type.startsWith('json_')) {
                       const response = await fetch(downloadUrl); // Fetch directly
                       if (!response.ok) throw new Error(`HTTP ${response.status}`);
                       const textData = await response.text();
