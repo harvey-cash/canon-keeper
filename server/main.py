@@ -695,6 +695,17 @@ async def serve_index():
     return FileResponse(index_path)
 
 
+@app.get("/favicon.ico")
+async def serve_favicon():
+    """Serves the favicon for the web UI."""
+    favicon_path_str = file_io.resource_path("web_content/favicon.ico")
+    favicon_path = Path(favicon_path_str)
+    if not favicon_path.exists():
+         print(f"Warning: favicon.ico not found at {favicon_path_str}")
+         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Favicon not found.")
+    return FileResponse(favicon_path)
+
+
 def run_server():
     """Starts the Uvicorn server."""
     uvicorn.run(app=app, host="127.0.0.1", port=8000, log_level="info", reload=False) # Use reload=True for dev

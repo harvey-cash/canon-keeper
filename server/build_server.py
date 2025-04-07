@@ -50,16 +50,14 @@ pyinstaller_command = [
     python_exe,  # Use python from root/.venv
     "-m",
     "PyInstaller",
-    "--name",
-    OUTPUT_NAME,
+    "--name", OUTPUT_NAME,
     # --add-data paths are relative to the CWD set in subprocess.run (SERVER_DIR)
-    "--add-data",
-    f"web_content{path_separator}web_content",
-    "--add-data",
-    f"src{path_separator}src",
+    "--add-data", f"web_content{path_separator}web_content",
+    "--add-data", f"src{path_separator}src",
     "--onedir",
     "--clean",
     "-y", # Overwrite any existing build files
+    "--icon", "./web_content/favicon.ico", 
     # "--windowed", # Optional
     ENTRY_SCRIPT,  # Entry script relative to CWD (SERVER_DIR)
 ]
