@@ -863,7 +863,7 @@ function App() {
 
             {/* --- Pipeline Panel (Right) --- */}
             <div className="flex-grow p-4 flex flex-col items-center overflow-y-auto bg-gray-100 dark:bg-gray-900">
-                <h2 className="text-xl font-semibold mb-3 text-gray-800 dark:text-gray-100">Processing Pipeline</h2>
+                <h2 className="text-xl font-semibold mb-3 text-gray-800 dark:text-gray-100">WAZAAAAAAP</h2>
 
                 {/* Global Error Display with dark styles */}
                 {error && <div className="w-full max-w-3xl mb-4 p-3 bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-200 rounded border border-red-300 dark:border-red-700 text-sm">{error}</div>}
