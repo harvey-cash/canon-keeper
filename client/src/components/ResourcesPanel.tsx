@@ -15,7 +15,7 @@ interface ResourcesPanelProps {
     onDeleteSelected: () => void;
     onToggleResourceSelection: (id: string) => void;
     onDeleteClick: (e: React.MouseEvent, resource: Resource) => void;
-    getRootProps: <T extends DropzoneOptions>(options?: T | undefined) => DropzoneRootProps; // Pass down dropzone props
+    getRootProps: <T extends DropzoneRootProps>(props?: T | undefined) => T;
     getInputProps: () => DropzoneInputProps;
     fileInputRef: React.RefObject<HTMLInputElement | null>;
     onFileSelected: (event: React.ChangeEvent<HTMLInputElement>) => void;
@@ -23,7 +23,7 @@ interface ResourcesPanelProps {
 }
 
 // Re-import necessary types from react-dropzone if needed, or use any
-import { DropzoneOptions, DropzoneRootProps, DropzoneInputProps } from 'react-dropzone';
+import { DropzoneRootProps, DropzoneInputProps } from 'react-dropzone';
 
 export function ResourcesPanel({
     resources,
