@@ -21,7 +21,7 @@ const PIPELINE_STEPS: PipelineStep[] = [
     {
         id: 'meta_video_to_recap', // New ID
         name: '🎬 Video to Recap', // New Name
-        inputs: ['video'],        // Initial input
+        inputs: ['video', 'text_prompt'],        // Initial input
         output: 'text_recap',     // Final output
         endpoint: '',
         sequence: [               // New sequence
@@ -553,7 +553,22 @@ function App() {
                                     console.log(`Sequence: Input ${nextInputType} ${foundInputForType ? `found from direct output: ${foundInputForType.id}` : 'not found in direct output'}`);
                                 }
 
-                                // 2. Check by base name (includes intermediates and potentially original/prompt)
+                                // 2. If the required type is text_prompt, search regardless of base name.
+                                if (!foundInputForType && nextInputType === 'text_prompt') {
+                                    const potentialMatches = currentResourcesAfterStep.filter(r => r.type === nextInputType);
+                                    if (potentialMatches.length === 1) {
+                                        foundInputForType = potentialMatches[0];
+                                        console.log(`Sequence: Input ${nextInputType} found by direct selection: ${foundInputForType.id}`);
+                                    } else if (potentialMatches.length > 1) {
+                                        potentialMatches.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+                                        foundInputForType = potentialMatches[0];
+                                        console.warn(`Sequence: Ambiguous match for ${nextInputType}. Using newest: ${foundInputForType.id}`);
+                                    } else {
+                                        console.log(`Sequence: Input ${nextInputType} not found in current resources.`);
+                                    }
+                                }
+
+                                // 3. Check by base name (for other input types)
                                 if (!foundInputForType && baseNameToMatch) {
                                     const potentialMatches = currentResourcesAfterStep.filter(r =>
                                         r.type === nextInputType &&

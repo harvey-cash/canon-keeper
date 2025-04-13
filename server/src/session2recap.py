@@ -15,6 +15,11 @@ def _generate_text(api_key: str, model: str, contents: str) -> str:
 
 def session_to_recap(transcript: str, api_key: str, prompt: str) -> str:
     """Generates a recap of the provided transcript using GenAI."""
+
+    if api_key == "mock":
+        print("Mocking Gemini API call for testing.")
+        return "[Pretend this is a very detailed recap of a long and very interesting transcript.]"
+
     print("Generating recap with Gemini...")
     contents = transcript + "\n\n---\n\n" + prompt
     return _generate_text(api_key, "gemini-2.5-pro-exp-03-25", contents)
@@ -22,6 +27,12 @@ def session_to_recap(transcript: str, api_key: str, prompt: str) -> str:
 
 def recap_to_summary(recap: str, api_key: str, prompt: str) -> str:
     """Generates a summary of the provided recap using GenAI."""
+
+    if api_key == "mock":
+        print("Mocking Gemini API call for testing.")
+        return "[Pretend this is a very detailed summary of a long and very interesting recap.]"
+
+
     print("Generating summary with Gemini...")
     contents = recap + "\n\n---\n\n" + prompt
     return _generate_text(api_key, "gemini-2.5-pro-exp-03-25", contents)
