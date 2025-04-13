@@ -21,7 +21,7 @@ const PIPELINE_STEPS: PipelineStep[] = [
     {
         id: 'meta_video_to_recap', // New ID
         name: '🎬 Video to Recap', // New Name
-        inputs: ['video'],        // Initial input
+        inputs: ['video', 'text_prompt'],        // Initial input
         output: 'text_recap',     // Final output
         endpoint: '',
         sequence: [               // New sequence
