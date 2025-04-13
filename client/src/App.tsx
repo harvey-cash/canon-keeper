@@ -9,7 +9,7 @@ import { PreviewPanel } from './components/PreviewPanel';
 import { PipelinePanel } from './components/PipelinePanel';
 
 // Import types (assuming they are in src/types.ts)
-import { Resource, ResourceTypeString, PipelineStep, PreviewContent, ProcessingJob } from './types'; // Ensure path is correct
+import { Resource, ResourceTypeString, PipelineStep, PreviewContent, ProcessingJob, PausedSequenceInfo } from './types'; // Ensure path is correct
 
 // --- Constants ---
 const API_BASE_URL = 'http://127.0.0.1:8000';
@@ -19,17 +19,18 @@ const ACCEPTED_FILE_TYPES = ".mp4,.mov,.avi,.mkv,.webm,.mp3,.wav,.ogg,.m4a,.flac
 // *** ADD THE NEW META-STEP AT THE TOP ***
 const PIPELINE_STEPS: PipelineStep[] = [
     {
-        id: 'meta_video_to_snippets', // Unique ID for the meta-step
-        name: '▶️ Video to Snippets', // Use an icon or prefix to denote meta
-        inputs: ['video'],           // The initial input type required
-        output: 'snippet',           // The final output type expected
-        endpoint: '',                // No direct endpoint
-        sequence: [                  // The sequence of actual step IDs
+        id: 'meta_video_to_recap', // New ID
+        name: '🎬 Video to Recap', // New Name
+        inputs: ['video'],        // Initial input
+        output: 'text_recap',     // Final output
+        endpoint: '',
+        sequence: [               // New sequence
             'video_to_audio',
             'audio_to_transcript',
-            'transcript_to_snippets'
+            'transcript_to_snippets', // Pause happens after this
+            'transcript_to_session',  // Resumes here
+            'session_to_recap'        // Continues here
         ],
-        // Note: requirements like keys are handled by the individual steps in the sequence
     },
     {
         id: 'video_to_audio', name: '1. Video to Audio', inputs: ['video'], output: 'audio', endpoint: '/process/video_to_audio',
@@ -107,7 +108,7 @@ async function fetchApi<T>(endpoint: string, options: RequestInit = {}): Promise
     }
 }
 
-// --- Utility Functions (keep as is) ---
+// --- Utility Functions ---
 const getBaseNameForComparison = (filename: string | undefined): string => {
     // ... same as before ...
     if (!filename) return '';
@@ -118,12 +119,12 @@ const getBaseNameForComparison = (filename: string | undefined): string => {
         .replace('_recap', '')
         .replace('_summary', '')
         .replace('_prompt', '')
-        .replace('_snippet', '') // Add snippet removal
-        .replace(/_speaker_[A-Z]/i, '') // Add specific speaker snippet removal
+        .replace('_snippet', '')
+        .replace(/_speaker_[A-Z]/i, '')
         .replace('_speaker_map', '')
         .replace(/\.\w+$/, '');
 };
-namespace Path { export function stem(filename: string): string { const parts = filename.split('.'); parts.pop(); return parts.join('.'); } }
+
 const tryFormatJson = (jsonString: string | null): string => {
     if (!jsonString) return '';
     try {
@@ -133,6 +134,10 @@ const tryFormatJson = (jsonString: string | null): string => {
     }
 };
 
+namespace Path {
+    export function stem(filename: string): string { const parts = filename.split('.'); if (parts.length > 1) parts.pop(); return parts.join('.'); }
+    export function extname(filename: string): string { const parts = filename.split('.'); return parts.length > 1 ? '.' + parts.pop() : ''; }
+}
 
 // --- Main App Component ---
 function App() {
@@ -154,6 +159,7 @@ function App() {
     const [speakerMapInput, setSpeakerMapInput] = useState<{ [label: string]: string }>({});
     const [uploadError, setUploadError] = useState<string | null>(null);
     const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+    const [pausedSequenceData, setPausedSequenceData] = useState<PausedSequenceInfo | null>(null);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -478,134 +484,155 @@ function App() {
 
             const currentResourcesAfterStep = fetchedAfterProcessing;
 
-            // --- Handle Sequence Continuation ---
+            // --- Sequence Handling Logic ---
             if (job.metaStepId && job.sequenceSteps && job.currentSequenceIndex !== undefined) {
-                const nextSequenceIndex = job.currentSequenceIndex + 1;
-                if (nextSequenceIndex < job.sequenceSteps.length) {
-                    const nextStepId = job.sequenceSteps[nextSequenceIndex];
-                    const nextStepDef = PIPELINE_STEPS.find(s => s.id === nextStepId);
-                    const completedStepOutput = step.output; // Type of resource just created
+                const currentJobIndex = job.currentSequenceIndex;
+                const isTranscriptToSnippetsStep = job.stepId === 'transcript_to_snippets';
 
-                    if (nextStepDef) {
-                        console.log(`Sequence: Preparing next step ${nextStepId} (needs inputs: ${nextStepDef.inputs.join(', ')})`);
-                        let nextInputResourcesFound: Resource[] = [];
-                        let nextInputIds: string[] = [];
-                        let inputsMissingForNext = false;
-                        let baseNameToMatch: string | null = null;
-
-                        // --- Determine the base name for this sequence instance ---
-                        // Prioritize using the generated resource from the *completed* step
-                        if (generatedResources.length > 0) {
-                            baseNameToMatch = getBaseNameForComparison(generatedResources[0].original_name);
-                        } else if (job.originalInputResourceIds && job.originalInputResourceIds.length > 0) {
-                            // Fallback: try getting base name from the *original* input if the completed step produced no direct resource
-                            const originalResource = currentResourcesAfterStep.find(r => r.id === job.originalInputResourceIds![0]);
-                            if (originalResource) {
-                                baseNameToMatch = getBaseNameForComparison(originalResource.original_name);
-                            }
-                        }
-                        console.log(`Sequence: Base name to match for finding inputs for ${nextStepId}:`, baseNameToMatch);
-
-                        // --- Find necessary inputs for the next step ---
-                        for (const nextInputType of nextStepDef.inputs) {
-                            let foundInputForType: Resource | null = null;
-
-                            // 1. Check direct output of the completed step
-                            //    (e.g., json_transcript from audio_to_transcript)
-                            if (nextInputType === completedStepOutput) {
-                                // Find *one* resource matching the type from the generated ones.
-                                // Assumes the next step only needs one instance of this type.
-                                const matchingGenerated = generatedResources.find(r => r.type === nextInputType);
-                                if (matchingGenerated) {
-                                    foundInputForType = matchingGenerated;
-                                    console.log(`Sequence: Input ${nextInputType} found from direct output: ${foundInputForType.id}`);
-                                }
-                            }
-
-                            // 2. If not found above, search *all* resources using the base name
-                            //    (e.g., finding the 'audio' file using the base name when 'json_transcript' was just generated)
-                            if (!foundInputForType && baseNameToMatch) {
-                                const potentialMatches = currentResourcesAfterStep.filter(r =>
-                                    r.type === nextInputType &&
-                                    getBaseNameForComparison(r.original_name) === baseNameToMatch
-                                );
-
-                                if (potentialMatches.length === 1) {
-                                    foundInputForType = potentialMatches[0];
-                                    console.log(`Sequence: Input ${nextInputType} found by base name match: ${foundInputForType.id}`);
-                                } else if (potentialMatches.length > 1) {
-                                    // Sort by creation date descending (newest first) as a heuristic
-                                    potentialMatches.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-                                    foundInputForType = potentialMatches[0]; // Take the newest
-                                    console.warn(`Sequence: Ambiguous base name match for ${nextInputType} with base name ${baseNameToMatch}. Found ${potentialMatches.length} resources. Using the newest one: ${foundInputForType.id}`);
-                                }
-                                // else: potentialMatches.length === 0 -> still not found
-                            }
-
-                            // Add the found resource (if any) to the list for the next job
-                            if (foundInputForType) {
-                                if (!nextInputIds.includes(foundInputForType.id)) {
-                                    nextInputResourcesFound.push(foundInputForType);
-                                    nextInputIds.push(foundInputForType.id);
-                                }
-                            } else {
-                                // Input genuinely couldn't be found
-                                console.error(`Sequence Error: Could not find required input '${nextInputType}' for the next step '${nextStepId}' (Base name: ${baseNameToMatch}). Check resource list and naming conventions.`);
-                                const errorKey = job.metaStepId || job.stepId;
-                                // Be specific about which input failed
-                                setStepErrors(prev => ({ ...prev, [errorKey]: `Sequence failed: Could not find input '${nextInputType}' for step '${nextStepDef.name}'.` }));
-                                inputsMissingForNext = true;
-                                break; // Stop looking for inputs for this next job
-                            }
-                        } // End loop through nextStepDef.inputs
-
-                        // --- Create and queue the next job if all inputs were found ---
-                        if (!inputsMissingForNext) {
-                            const nextJob: ProcessingJob = {
-                                stepId: nextStepId,
-                                inputResourceIds: [...new Set(nextInputIds)], // Ensure unique IDs
-                                inputOriginalNames: Object.fromEntries(nextInputResourcesFound.map(r => [r.id, r.original_name || r.filename])), // Use filename as fallback
-                                apiKeys: nextStepDef.requiresKeys ? apiKeys : undefined,
-                                metaStepId: job.metaStepId,
-                                sequenceSteps: job.sequenceSteps,
-                                currentSequenceIndex: nextSequenceIndex,
-                                originalInputResourceIds: job.originalInputResourceIds,
-                            };
-                            console.log("Sequence: Queueing next job", nextJob);
-                            setProcessingQueue(prev => [...prev, nextJob]);
-                        } else {
-                            setProcessingQueue([]); // Clear queue if next step cannot be prepared
-                        }
-
-                    } else { // nextStepDef not found
-                        console.error(`Sequence Error: Next step ID '${nextStepId}' not found in PIPELINE_STEPS.`);
-                        const errorKey = job.metaStepId || job.stepId;
-                        setStepErrors(prev => ({ ...prev, [errorKey]: `Sequence failed: Invalid next step ID '${nextStepId}'.` }));
-                        setProcessingQueue([]);
+                // --- PAUSE LOGIC ---
+                if (isTranscriptToSnippetsStep && generatedResources.length > 0) {
+                    console.log(`Sequence: Pausing after ${job.stepId} for speaker mapping.`);
+                    // Determine base name for resuming later
+                    let baseNameToMatch: string | null = null;
+                    if (generatedResources.length > 0) {
+                        baseNameToMatch = getBaseNameForComparison(generatedResources[0].original_name);
+                    } else if (job.originalInputResourceIds && job.originalInputResourceIds.length > 0) {
+                        const originalResource = currentResourcesAfterStep.find(r => r.id === job.originalInputResourceIds![0]);
+                        if (originalResource) baseNameToMatch = getBaseNameForComparison(originalResource.original_name);
                     }
-                } else { // Last step in sequence completed
-                    console.log(`Sequence for ${job.metaStepId} completed successfully at step ${job.stepId}.`);
-                    // Optional: Select the final output resources?
-                    // setSelectedResourceIds(new Set(resultResourceIds));
+
+                    // Store pause state
+                    setPausedSequenceData({
+                        metaStepId: job.metaStepId,
+                        sequenceSteps: job.sequenceSteps,
+                        pausedAtIndex: currentJobIndex, // Store index of the step that just finished
+                        originalInputResourceIds: job.originalInputResourceIds || [],
+                        baseNameToMatch: baseNameToMatch,
+                        generatedResourceIdsBeforePause: resultResourceIds // Store IDs generated by this step
+                    });
+
+                    // Show the modal
+                    const generatedSnippets = generatedResources as Resource[];
+                    setSnippetsForMapping(generatedSnippets);
+                    setShowSpeakerMapForm(true);
+
+                    // DO NOT proceed to queue the next job here
+
                 }
-            } // End sequence handling block
+                // --- STANDARD CONTINUATION LOGIC ---
+                else {
+                    const nextSequenceIndex = currentJobIndex + 1;
+                    if (nextSequenceIndex < job.sequenceSteps.length) {
+                        const nextStepId = job.sequenceSteps[nextSequenceIndex];
+                        const nextStepDef = PIPELINE_STEPS.find(s => s.id === nextStepId);
+                        const completedStepOutput = step.output;
+
+                        if (nextStepDef) {
+                            console.log(`Sequence: Preparing next step ${nextStepId} (needs inputs: ${nextStepDef.inputs.join(', ')})`);
+                            let nextInputResourcesFound: Resource[] = [];
+                            let nextInputIds: string[] = [];
+                            let inputsMissingForNext = false;
+                            let baseNameToMatch: string | null = null; // Determine base name again for this context
+
+                            if (generatedResources.length > 0) {
+                                baseNameToMatch = getBaseNameForComparison(generatedResources[0].original_name);
+                            } else if (job.originalInputResourceIds && job.originalInputResourceIds.length > 0) {
+                                const originalResource = currentResourcesAfterStep.find(r => r.id === job.originalInputResourceIds![0]);
+                                if (originalResource) baseNameToMatch = getBaseNameForComparison(originalResource.original_name);
+                            }
+                            console.log(`Sequence: Base name to match for finding inputs for ${nextStepId}:`, baseNameToMatch);
+
+                            // Find inputs (using the refined logic from previous step)
+                            for (const nextInputType of nextStepDef.inputs) {
+                                let foundInputForType: Resource | null = null;
+
+                                // 1. Check direct output
+                                if (nextInputType === completedStepOutput) {
+                                    const matchingGenerated = generatedResources.find(r => r.type === nextInputType);
+                                    if (matchingGenerated) foundInputForType = matchingGenerated;
+                                    console.log(`Sequence: Input ${nextInputType} ${foundInputForType ? `found from direct output: ${foundInputForType.id}` : 'not found in direct output'}`);
+                                }
+
+                                // 2. Check by base name (includes intermediates and potentially original/prompt)
+                                if (!foundInputForType && baseNameToMatch) {
+                                    const potentialMatches = currentResourcesAfterStep.filter(r =>
+                                        r.type === nextInputType &&
+                                        getBaseNameForComparison(r.original_name) === baseNameToMatch
+                                    );
+                                    if (potentialMatches.length === 1) {
+                                        foundInputForType = potentialMatches[0];
+                                        console.log(`Sequence: Input ${nextInputType} found by base name match: ${foundInputForType.id}`);
+                                    } else if (potentialMatches.length > 1) {
+                                        potentialMatches.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+                                        foundInputForType = potentialMatches[0];
+                                        console.warn(`Sequence: Ambiguous base name match for ${nextInputType} (base: ${baseNameToMatch}). Using newest: ${foundInputForType.id}`);
+                                    } else {
+                                        console.log(`Sequence: Input ${nextInputType} not found by base name match.`);
+                                    }
+                                }
+
+                                if (foundInputForType) {
+                                    if (!nextInputIds.includes(foundInputForType.id)) {
+                                        nextInputResourcesFound.push(foundInputForType);
+                                        nextInputIds.push(foundInputForType.id);
+                                    }
+                                } else {
+                                    console.error(`Sequence Error: Could not find required input '${nextInputType}' for step '${nextStepId}' (Base name: ${baseNameToMatch}).`);
+                                    const errorKey = job.metaStepId || job.stepId;
+                                    setStepErrors(prev => ({ ...prev, [errorKey]: `Sequence failed: Could not find input '${nextInputType}' for step '${nextStepDef.name}'.` }));
+                                    inputsMissingForNext = true;
+                                    break;
+                                }
+                            } // End input finding loop
+
+                            if (!inputsMissingForNext) {
+                                const nextJob: ProcessingJob = {
+                                    stepId: nextStepId,
+                                    inputResourceIds: [...new Set(nextInputIds)],
+                                    inputOriginalNames: Object.fromEntries(nextInputResourcesFound.map(r => [r.id, r.original_name || r.filename])),
+                                    apiKeys: nextStepDef.requiresKeys ? apiKeys : undefined,
+                                    metaStepId: job.metaStepId,
+                                    sequenceSteps: job.sequenceSteps,
+                                    currentSequenceIndex: nextSequenceIndex,
+                                    originalInputResourceIds: job.originalInputResourceIds,
+                                };
+                                console.log("Sequence: Queueing next job", nextJob);
+                                setProcessingQueue(prev => [...prev, nextJob]);
+                            } else {
+                                setProcessingQueue([]); // Clear queue if error
+                            }
+
+                        } else { // nextStepDef not found
+                            console.error(`Sequence Error: Next step ID '${nextStepId}' not found in PIPELINE_STEPS.`);
+                            const errorKey = job.metaStepId || job.stepId;
+                            setStepErrors(prev => ({ ...prev, [errorKey]: `Sequence failed: Invalid next step ID '${nextStepId}'.` }));
+                            setProcessingQueue([]);
+                        }
+                    } else { // Last step in sequence completed
+                        console.log(`Sequence for ${job.metaStepId} completed successfully at step ${job.stepId}.`);
+                        // Optional: Select the final output resources?
+                        // setSelectedResourceIds(new Set(resultResourceIds));
+                    }
+                } // End sequence handling block
 
 
-            // --- Handle Speaker Mapping Modal ---
-            if (step.id === 'transcript_to_snippets' && generatedResources.length > 0 && generatedResources[0].type === 'snippet') {
-                const generatedSnippets = generatedResources as Resource[];
-                setSnippetsForMapping(generatedSnippets);
-                setShowSpeakerMapForm(true);
+                // --- Handle Speaker Mapping Modal ---
+                if (step.id === 'transcript_to_snippets' && generatedResources.length > 0 && generatedResources[0].type === 'snippet') {
+                    const generatedSnippets = generatedResources as Resource[];
+                    setSnippetsForMapping(generatedSnippets);
+                    setShowSpeakerMapForm(true);
+                }
+
+                jobSuccessful = true;
             }
-
-            jobSuccessful = true;
-
-        } catch (err: any) {
+        }
+        catch (err: any) {
             console.error(`Error processing job ${job.stepId} (part of ${job.metaStepId || 'standalone'}):`, err);
             const errorKey = job.metaStepId || job.stepId;
             setStepErrors(prev => ({ ...prev, [errorKey]: `Step "${step.name}" failed: ${err.message}` }));
             setProcessingQueue([]);
-        } finally {
+        }
+        finally {
             setCurrentlyProcessing(null);
         }
 
@@ -622,24 +649,24 @@ function App() {
     }, [currentlyProcessing, processingQueue, processJob]); // processJob is now a dependency
 
     // --- Start/Stop Processing Handlers ---
-    // *** MODIFY handleStartProcessing TO HANDLE META-STEPS ***
     const handleStartProcessing = useCallback((step: PipelineStep) => {
-        setError(null);
-        setStepErrors(prev => ({ ...prev, [step.id]: null })); // Clear previous errors for this step
+        setError(null); // Clear global errors
+        setStepErrors(prev => ({ ...prev, [step.id]: null })); // Clear previous errors specifically for this step
         console.log(`Attempting to start step: ${step.id}`);
-        console.log("Current selectedResourceIds:", selectedResourceIds);
-        console.log("Current apiKeys:", apiKeys);
+        const currentSelectedResources = resources.filter(r => selectedResourceIds.has(r.id)); // Get currently selected resources
 
-        const newJobs: ProcessingJob[] = [];
-        const currentSelectedResources = resources.filter(r => selectedResourceIds.has(r.id));
-
+        // Check if any resources are selected at all
         if (currentSelectedResources.length === 0) {
             setStepErrors(prev => ({ ...prev, [step.id]: "No resources selected." }));
-            return;
+            console.log(`Step ${step.id} start prevented: No resources selected.`);
+            return; // Stop processing if nothing is selected
         }
+
+        const newJobs: ProcessingJob[] = []; // Initialize array to hold jobs to be queued
 
         // --- Handle Meta-Step ---
         if (step.sequence && step.sequence.length > 0) {
+            console.log(`Handling meta-step sequence: ${step.id}`);
             const firstStepId = step.sequence[0];
             const firstStepDef = PIPELINE_STEPS.find(s => s.id === firstStepId);
 
@@ -647,110 +674,181 @@ function App() {
                 const errorMsg = `Internal Error: First step '${firstStepId}' of sequence '${step.name}' not found.`;
                 console.error(errorMsg);
                 setStepErrors(prev => ({ ...prev, [step.id]: errorMsg }));
-                return;
+                return; // Stop if sequence definition is broken
             }
 
-            // Initial input type for the *meta-step*
+            // Find selected resources that match the *initial* input type required by the meta-step
             const initialInputType = step.inputs[0];
             const selectedInitialInputs = currentSelectedResources.filter(r => r.type === initialInputType);
 
             if (selectedInitialInputs.length === 0) {
-                const errorMsg = `Invalid selection for sequence "${step.name}". Select required input(s): ${step.inputs.join(', ')}.`;
+                const errorMsg = `Invalid selection for sequence "${step.name}". Select required initial input(s): ${step.inputs.join(', ')}.`;
                 setStepErrors(prev => ({ ...prev, [step.id]: errorMsg }));
-                return;
+                console.log(`Meta-step ${step.id} start prevented: No matching initial inputs selected.`);
+                return; // Stop if no initial inputs are selected
             }
 
-            // Create one sequence job chain for each selected initial input
+            // Create one sequence job chain for each selected initial input resource
             selectedInitialInputs.forEach(initialResource => {
                 newJobs.push({
-                    // Job targets the *first actual step*
+                    // Job targets the *first actual step* in the sequence
                     stepId: firstStepId,
                     inputResourceIds: [initialResource.id],
-                    inputOriginalNames: { [initialResource.id]: initialResource.original_name },
+                    inputOriginalNames: { [initialResource.id]: initialResource.original_name || initialResource.filename },
                     apiKeys: firstStepDef.requiresKeys ? apiKeys : undefined,
                     // --- Sequence Info ---
-                    metaStepId: step.id,
-                    sequenceSteps: step.sequence,
-                    currentSequenceIndex: 0, // Start at index 0
-                    originalInputResourceIds: [initialResource.id] // Track the initial input
+                    metaStepId: step.id, // Link back to the parent meta-step
+                    sequenceSteps: step.sequence, // Store the full sequence
+                    currentSequenceIndex: 0, // Start at the first step (index 0)
+                    originalInputResourceIds: [initialResource.id] // Track the very first input resource ID
                 });
             });
-            console.log(`Created ${newJobs.length} sequence job(s) starting with ${firstStepId}`);
+            console.log(`Created ${newJobs.length} sequence job chain(s) for meta-step ${step.id}, starting with step ${firstStepId}`);
 
         }
-        // --- Handle Regular Multi-Input Step ---
+        // --- Handle Regular Multi-Input Step (Revised Logic for Subsets) ---
         else if (step.multiInput && step.inputs.length > 0) {
-            // Group selected resources by base name to find matching sets
-            const groups: { [baseName: string]: { [type in ResourceTypeString]?: Resource } } = {};
-            currentSelectedResources.forEach(res => {
-                let base = getBaseNameForComparison(res.original_name);
-                if (!base) base = `no_base_${res.id}`; // Handle potential empty base names
-                if (!groups[base]) groups[base] = {};
-                // Allow multiple resources of the same type for a base name? No, assume one for now.
-                groups[base][res.type] = res;
+            console.log(`Handling multi-input step: ${step.id}. Needs input types: ${step.inputs.join(', ')}`);
+
+            // 1. Collect candidate resources for each required input type from the overall selection
+            const candidatesByType: { [type in ResourceTypeString]?: Resource[] } = {};
+            step.inputs.forEach(inputType => {
+                candidatesByType[inputType] = currentSelectedResources.filter(r => r.type === inputType);
+                console.log(` - Found ${candidatesByType[inputType]?.length ?? 0} selected candidate(s) for type '${inputType}'`);
             });
 
-            Object.values(groups).forEach(group => {
-                const hasAllInputs = step.inputs.every(inputType => group[inputType]);
-                if (hasAllInputs) {
-                    const inputResourcesForJob = step.inputs.map(inputType => group[inputType]!);
-                    const inputIds = inputResourcesForJob.map(res => res.id);
+            // 2. Check if we have at least one candidate for *every* required type
+            const hasCandidatesForAllTypes = step.inputs.every(inputType => (candidatesByType[inputType]?.length ?? 0) > 0);
+
+            if (hasCandidatesForAllTypes) {
+                // 3. Attempt to form valid groups based on matching base names
+                const anchorInputType = step.inputs[0]; // Use the first required type as the anchor for matching
+                const anchorCandidates = candidatesByType[anchorInputType]!;
+                const usedResourceIds = new Set<string>(); // Track resources already assigned to a job in this batch
+
+                console.log(`Attempting to match groups based on base names, using type '${anchorInputType}' as anchor.`);
+                anchorCandidates.forEach(anchorResource => {
+                    // Skip if this anchor resource was already part of a successful group found earlier
+                    if (usedResourceIds.has(anchorResource.id)) return;
+
+                    const baseName = getBaseNameForComparison(anchorResource.original_name);
+                    // It's possible for a file to have no discernible base name if improperly named
+                    if (!baseName) {
+                        console.warn(`Skipping anchor resource ${anchorResource.original_name} (${anchorResource.id}) as it yields no comparable base name.`);
+                        return; // Cannot match this resource without a base name
+                    }
+
+                    const potentialGroup: { [type in ResourceTypeString]?: Resource } = { [anchorInputType]: anchorResource };
+                    let groupComplete = true; // Assume complete until a partner is missing
+
+                    // Iterate through the *other* required input types to find matching partners
+                    for (let i = 1; i < step.inputs.length; i++) {
+                        const requiredType = step.inputs[i];
+                        const partnerCandidates = candidatesByType[requiredType]!;
+
+                        // Find a partner candidate that:
+                        // 1. Matches the required type
+                        // 2. Has the *same* base name as the anchor resource
+                        // 3. Has *not* already been used in another group in this batch
+                        const partner = partnerCandidates.find(candidate =>
+                            !usedResourceIds.has(candidate.id) &&
+                            getBaseNameForComparison(candidate.original_name) === baseName
+                        );
+
+                        if (partner) {
+                            potentialGroup[requiredType] = partner; // Add the found partner to the potential group
+                        } else {
+                            groupComplete = false; // Could not find a matching, unused partner for this required type
+                            console.log(` - For anchor ${anchorResource.original_name} (base: '${baseName}'), could not find unused partner of type '${requiredType}'`);
+                            break; // Stop trying to complete this group for this anchor
+                        }
+                    }
+
+                    // If we successfully found matching partners for all other required types
+                    if (groupComplete) {
+                        const groupResources = Object.values(potentialGroup) as Resource[];
+                        const groupResourceIds = groupResources.map(r => r.id);
+
+                        console.log(`   + Found valid group based on base name '${baseName}': IDs [${groupResourceIds.join(', ')}]`);
+                        newJobs.push({
+                            stepId: step.id,
+                            inputResourceIds: groupResourceIds,
+                            apiKeys: step.requiresKeys ? apiKeys : undefined,
+                            inputOriginalNames: Object.fromEntries(groupResources.map(r => [r.id, r.original_name || r.filename]))
+                            // No sequence info for regular steps
+                        });
+
+                        // Mark all resources in this successful group as used for this run
+                        groupResourceIds.forEach(id => usedResourceIds.add(id));
+                    }
+                }); // End looping through anchor candidates
+
+                // Fallback: If NO jobs were created via base name matching,
+                // AND if exactly one candidate exists for each required type *within the selection*,
+                // create a job with that single set. This handles the simple case where names might not match.
+                if (newJobs.length === 0 && step.inputs.every(inputType => candidatesByType[inputType]?.length === 1)) {
+                    console.log(`Base name matching yielded no jobs for step ${step.id}. Applying fallback: using the single available candidate for each required type.`);
+                    const singleGroupResources = step.inputs.map(inputType => candidatesByType[inputType]![0]);
+                    const singleGroupResourceIds = singleGroupResources.map(r => r.id);
+
+                    // Optional: Check for filename mismatch warning here if desired for the fallback case
+                    // const mismatchWarning = getFilenameMismatchWarning(step, singleGroupResources); // Needs adjustment to getFilenameMismatchWarning
+                    // if (mismatchWarning) { console.warn(mismatchWarning); }
+
                     newJobs.push({
                         stepId: step.id,
-                        inputResourceIds: inputIds,
+                        inputResourceIds: singleGroupResourceIds,
                         apiKeys: step.requiresKeys ? apiKeys : undefined,
-                        inputOriginalNames: Object.fromEntries(inputResourcesForJob.map(r => [r.id, r.original_name]))
-                        // No sequence info for regular steps
+                        inputOriginalNames: Object.fromEntries(singleGroupResources.map(r => [r.id, r.original_name || r.filename]))
                     });
+                    console.log(`   + Created fallback job with IDs [${singleGroupResourceIds.join(', ')}]`);
+                } else if (newJobs.length === 0) {
+                    console.log(`Could not form any valid groups for multi-input step ${step.id} based on base name matching or single set fallback.`);
                 }
-            });
 
-            // Fallback: If grouping failed but exactly one of each required type is selected globally
-            if (newJobs.length === 0) {
-                const requiredInputsSelected = step.inputs.map(inputType =>
-                    currentSelectedResources.filter(r => r.type === inputType)
-                );
-                const exactlyOneOfEachSelected = requiredInputsSelected.every(list => list.length === 1);
-                const totalSelectedMatchesInputCount = currentSelectedResources.length === step.inputs.length;
-
-                if (exactlyOneOfEachSelected && totalSelectedMatchesInputCount) {
-                    console.log(`Grouping heuristic failed for step ${step.id}, using globally selected pair.`);
-                    const inputResourcesForJob = requiredInputsSelected.map(list => list[0]);
-                    const inputIds = inputResourcesForJob.map(res => res.id);
-                    newJobs.push({
-                        stepId: step.id,
-                        inputResourceIds: inputIds,
-                        apiKeys: step.requiresKeys ? apiKeys : undefined,
-                        inputOriginalNames: Object.fromEntries(inputResourcesForJob.map(r => [r.id, r.original_name]))
-                    });
-                }
+            } else {
+                // This case means that even though the step might be eligible (some resources of each type exist),
+                // the current selection doesn't contain at least one of each required type.
+                // This might occur if eligibility logic slightly differs or state updates were weird.
+                // The final error message outside this block will handle informing the user.
+                console.log(`Cannot proceed with multi-input step ${step.id}: The current selection is missing candidates for one or more required types (${step.inputs.join(', ')}).`);
             }
         }
         // --- Handle Regular Single-Input Step ---
         else if (step.inputs.length === 1) {
             const inputType = step.inputs[0];
-            currentSelectedResources
-                .filter(r => r.type === inputType)
-                .forEach(resource => {
+            console.log(`Handling single-input step: ${step.id}. Needs input type: ${inputType}`);
+            // Find all selected resources that match the single required input type
+            const matchingResources = currentSelectedResources.filter(r => r.type === inputType);
+
+            if (matchingResources.length > 0) {
+                matchingResources.forEach(resource => {
                     newJobs.push({
                         stepId: step.id,
                         inputResourceIds: [resource.id],
                         apiKeys: step.requiresKeys ? apiKeys : undefined,
-                        inputOriginalNames: { [resource.id]: resource.original_name }
+                        inputOriginalNames: { [resource.id]: resource.original_name || resource.filename }
                         // No sequence info for regular steps
                     });
                 });
+                console.log(`Created ${newJobs.length} job(s) for single-input step ${step.id}.`);
+            } else {
+                console.log(`No selected resources match the required input type '${inputType}' for step ${step.id}.`);
+            }
         }
 
         // --- Final Check and Queueing ---
         if (newJobs.length > 0) {
+            // If any jobs were successfully created (for meta, multi, or single input steps)
+            console.log(`Queueing ${newJobs.length} job(s) for step ${step.id}`);
             setProcessingQueue(prev => [...prev, ...newJobs]);
-        } else if (!step.sequence) { // Only show error if no jobs were created *and* it wasn't a meta-step (meta-step error handled above)
-            const errorMsg = `Invalid selection for step "${step.name}". Select required input(s): ${step.inputs.join(', ')}. Check naming conventions for multi-input steps.`;
+        } else {
+            // If after all checks (meta, multi, single), NO jobs could be created
+            const errorMsg = `Could not find valid inputs for step "${step.name}" in the current selection. Required input type(s): ${step.inputs.join(', ')}. Please check selection, resource availability, and naming conventions (for multi-input steps).`;
             setStepErrors(prev => ({ ...prev, [step.id]: errorMsg }));
+            console.log(`No valid jobs could be created for step ${step.id} from the current selection.`);
         }
-    }, [selectedResourceIds, apiKeys, resources, getBaseNameForComparison]); // Added resources and getBaseNameForComparison
-
+    }, [selectedResourceIds, apiKeys, resources, getBaseNameForComparison]); // Dependencies
 
     const handleStopProcessing = useCallback(() => {
         setProcessingQueue([]); // Clear the queue
@@ -776,24 +874,23 @@ function App() {
         }
         // Use the specific step ID where the error should appear
         setStepErrors(prev => ({ ...prev, 'transcript_to_snippets': null }));
+        let uploadedMapResource: Resource | null = null;
+        let latestResourcesAfterUpload: Resource[] = [];
 
         try {
             // Use only the filled entries for the map
             const mapToSave = Object.fromEntries(filledEntries);
             const mapJsonString = JSON.stringify(mapToSave, null, 2);
             const blob = new Blob([mapJsonString], { type: 'application/json' });
-
-            let baseName = "session"; // Default
-            // Try to derive baseName from the *first* snippet being mapped
+            let baseName = "session";
             if (snippetsForMapping.length > 0) {
-                const firstSnippetOriginName = snippetsForMapping[0].original_name;
-                // Use the robust getBaseNameForComparison utility
-                const derivedBaseName = getBaseNameForComparison(firstSnippetOriginName);
-                // Ensure it actually removed something, otherwise stick to default
-                if (derivedBaseName && derivedBaseName !== firstSnippetOriginName.replace(/\.\w+$/, '')) {
+                const derivedBaseName = getBaseNameForComparison(snippetsForMapping[0].original_name);
+                if (derivedBaseName && derivedBaseName !== Path.stem(snippetsForMapping[0].original_name)) {
                     baseName = derivedBaseName;
                 }
-                console.log("Derived base name for speaker map:", baseName);
+            } else if (pausedSequenceData?.baseNameToMatch) {
+                // Fallback to paused data if snippets aren't available for some reason
+                baseName = pausedSequenceData.baseNameToMatch;
             }
             const filename = `${baseName}_speaker_map.json`;
 
@@ -801,28 +898,123 @@ function App() {
             formData.append('file', blob, filename);
 
             console.log(`Uploading speaker map as ${filename}...`);
-            const uploadedMapResource = await fetchApi<Resource>('/upload/json_speaker_map', {
+            uploadedMapResource = await fetchApi<Resource>('/upload/json_speaker_map', {
                 method: 'POST',
                 body: formData,
             });
 
             if (uploadedMapResource) {
                 // Fetch resources AND select the newly uploaded map
-                await fetchResources([uploadedMapResource.id]);
+                latestResourcesAfterUpload = await fetchResources([uploadedMapResource.id]);
+            } else { throw new Error("Speaker map upload did not return resource details."); }
+
+        } catch (err: any) {
+            console.error("Failed to submit speaker map:", err);
+            setStepErrors(prev => ({ ...prev, 'transcript_to_snippets': `Failed to save speaker map: ${err.message}` }));
+            // Don't proceed to resume sequence if upload failed
+            return;
+        }
+
+        // --- Sequence Resumption Logic ---
+        if (pausedSequenceData && uploadedMapResource) {
+            console.log("Sequence: Resuming sequence after speaker map submission.");
+            const pausedData = pausedSequenceData;
+            setPausedSequenceData(null); // Clear pause state
+
+            const nextSequenceIndex = pausedData.pausedAtIndex + 1;
+            if (nextSequenceIndex < pausedData.sequenceSteps.length) {
+                const nextStepId = pausedData.sequenceSteps[nextSequenceIndex];
+                const nextStepDef = PIPELINE_STEPS.find(s => s.id === nextStepId);
+
+                if (nextStepDef) {
+                    let resumeInputResourcesFound: Resource[] = [];
+                    let resumeInputIds: string[] = [];
+                    let inputsMissingForResume = false;
+
+                    console.log(`Sequence: Preparing resuming step ${nextStepId} (needs inputs: ${nextStepDef.inputs.join(', ')})`);
+
+                    // Find inputs needed for the resuming step (e.g., transcript_to_session)
+                    for (const resumeInputType of nextStepDef.inputs) {
+                        let foundInputForResume: Resource | null = null;
+
+                        // 1. Is it the speaker map we just uploaded?
+                        if (resumeInputType === 'json_speaker_map') {
+                            foundInputForResume = uploadedMapResource;
+                            console.log(`Sequence Resume: Input ${resumeInputType} found from uploaded map: ${foundInputForResume.id}`);
+                        }
+                        // 2. Is it the transcript (or other file) matching the base name?
+                        else if (pausedData.baseNameToMatch) {
+                            const potentialMatches = latestResourcesAfterUpload.filter(r =>
+                                r.type === resumeInputType &&
+                                getBaseNameForComparison(r.original_name) === pausedData.baseNameToMatch
+                            );
+                            if (potentialMatches.length === 1) {
+                                foundInputForResume = potentialMatches[0];
+                                console.log(`Sequence Resume: Input ${resumeInputType} found by base name match: ${foundInputForResume.id}`);
+                            } else if (potentialMatches.length > 1) {
+                                potentialMatches.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+                                foundInputForResume = potentialMatches[0];
+                                console.warn(`Sequence Resume: Ambiguous base name match for ${resumeInputType}. Using newest: ${foundInputForResume.id}`);
+                            }
+                            // else not found by base name
+                        }
+
+                        if (foundInputForResume) {
+                            if (!resumeInputIds.includes(foundInputForResume.id)) {
+                                resumeInputResourcesFound.push(foundInputForResume);
+                                resumeInputIds.push(foundInputForResume.id);
+                            }
+                        } else {
+                            console.error(`Sequence Resume Error: Could not find required input '${resumeInputType}' for step '${nextStepId}'.`);
+                            // Associate error with the *meta step* ID stored in pausedData
+                            setStepErrors(prev => ({ ...prev, [pausedData.metaStepId]: `Sequence failed: Could not find input '${resumeInputType}' for step '${nextStepDef.name}' after speaker mapping.` }));
+                            inputsMissingForResume = true;
+                            break;
+                        }
+                    } // End input finding loop for resume
+
+                    if (!inputsMissingForResume) {
+                        const resumeJob: ProcessingJob = {
+                            stepId: nextStepId,
+                            inputResourceIds: [...new Set(resumeInputIds)],
+                            inputOriginalNames: Object.fromEntries(resumeInputResourcesFound.map(r => [r.id, r.original_name || r.filename])),
+                            apiKeys: nextStepDef.requiresKeys ? apiKeys : undefined,
+                            // Carry over sequence info from pausedData
+                            metaStepId: pausedData.metaStepId,
+                            sequenceSteps: pausedData.sequenceSteps,
+                            currentSequenceIndex: nextSequenceIndex, // Start from the step *after* the pause
+                            originalInputResourceIds: pausedData.originalInputResourceIds,
+                        };
+                        console.log("Sequence: Queueing resumed job", resumeJob);
+                        setProcessingQueue(prev => [...prev, resumeJob]);
+
+                        // Clear the form state ONLY if resume was successful
+                        setShowSpeakerMapForm(false);
+                        setSnippetsForMapping([]);
+                        setSpeakerMapInput({});
+
+                    } // End if !inputsMissingForResume
+
+                } else { // nextStepDef not found
+                    console.error(`Sequence Resume Error: Next step ID '${nextStepId}' not found.`);
+                    setStepErrors(prev => ({ ...prev, [pausedData.metaStepId]: `Sequence failed: Invalid next step ID '${nextStepId}'.` }));
+                }
+            } else { // Should not happen if sequence was defined correctly
+                console.log("Sequence: Speaker map submitted, but sequence was already completed according to paused index.");
+                // Clear form state even if sequence doesn't resume? Yes.
                 setShowSpeakerMapForm(false);
                 setSnippetsForMapping([]);
                 setSpeakerMapInput({});
-                // Note: No automatic continuation of sequences here. User needs to manually start the next step (e.g., Transcript to Session)
-            } else {
-                throw new Error("Speaker map upload did not return resource details.");
             }
-        } catch (err: any) {
-            console.error("Failed to submit speaker map:", err);
-            // Show error associated with the step that triggered the modal
-            setStepErrors(prev => ({ ...prev, 'transcript_to_snippets': `Failed to save speaker map: ${err.message}` }));
+        } else {
+            // Speaker map submitted, but no sequence was paused. Just clear the form.
+            setShowSpeakerMapForm(false);
+            setSnippetsForMapping([]);
+            setSpeakerMapInput({});
+            console.log("Speaker map saved (no sequence resumed).");
         }
-    }, [speakerMapInput, snippetsForMapping, fetchResources, getBaseNameForComparison]); // Dependencies
 
+    }, [speakerMapInput, snippetsForMapping, fetchResources, getBaseNameForComparison, pausedSequenceData, apiKeys]); // Added dependencies
 
     // --- Eligibility & Validation Logic (check sequence steps too) ---
     const checkStepEligibility = useCallback((step: PipelineStep): boolean => {
