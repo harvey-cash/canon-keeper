@@ -16,6 +16,16 @@ def audio_to_transcript(audio_data: io.BytesIO, api_key: str) -> dict | None:
     Returns:
         The AssemblyAI Transcript object on success, None on failure.
     """
+    if api_key == "mock":
+        print("Mocking AssemblyAI API call for testing.")
+        return { "utterances": [ {
+            "text": "This is a short audio file. Its only purpose is to test the transcription function.",
+            "start": 480,
+            "end": 6140,
+            "confidence": 0.93380934,
+            "speaker": "A",
+        }] }
+
     if not api_key:
         print("Error: API key is missing.")
         return None

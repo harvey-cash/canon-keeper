@@ -29,7 +29,7 @@ def get_application_path():
     return application_path
 
 
-def resource_path(relative_path):
+def resource_path(relative_path = "") -> str:
     """Get absolute path to resource, works for dev and for PyInstaller"""
     try:
         # PyInstaller creates a temp folder and stores path in _MEIPASS
