@@ -1,7 +1,7 @@
 // client/src/App.tsx
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { FiAlertTriangle, FiLoader, FiInfo } from 'react-icons/fi';
+import { FiAlertTriangle, FiLoader, FiInfo, FiFastForward } from 'react-icons/fi'; // Added FiFastForward
 
 // Import the new components
 import { ResourcesPanel } from './components/ResourcesPanel';
@@ -9,17 +9,28 @@ import { PreviewPanel } from './components/PreviewPanel';
 import { PipelinePanel } from './components/PipelinePanel';
 
 // Import types (assuming they are in src/types.ts)
-import { Resource, ResourceTypeString, PipelineStep, PreviewContent, ProcessingJob } from './types';
+import { Resource, ResourceTypeString, PipelineStep, PreviewContent, ProcessingJob } from './types'; // Ensure path is correct
 
 // --- Constants ---
-// Keep constants, types, pipeline definition etc. here for now
 const API_BASE_URL = 'http://127.0.0.1:8000';
-const ACCEPTED_FILE_TYPES = ".mp4,.mov,.avi,.mkv,.webm,.mp3,.wav,.ogg,.m4a,.flac,.json,.txt"; // Define accepted types
-
-// --- Types --- moved to src/types.ts
+const ACCEPTED_FILE_TYPES = ".mp4,.mov,.avi,.mkv,.webm,.mp3,.wav,.ogg,.m4a,.flac,.json,.txt";
 
 // --- Pipeline Definition ---
+// *** ADD THE NEW META-STEP AT THE TOP ***
 const PIPELINE_STEPS: PipelineStep[] = [
+    {
+        id: 'meta_video_to_snippets', // Unique ID for the meta-step
+        name: '▶️ Video to Snippets', // Use an icon or prefix to denote meta
+        inputs: ['video'],           // The initial input type required
+        output: 'snippet',           // The final output type expected
+        endpoint: '',                // No direct endpoint
+        sequence: [                  // The sequence of actual step IDs
+            'video_to_audio',
+            'audio_to_transcript',
+            'transcript_to_snippets'
+        ],
+        // Note: requirements like keys are handled by the individual steps in the sequence
+    },
     {
         id: 'video_to_audio', name: '1. Video to Audio', inputs: ['video'], output: 'audio', endpoint: '/process/video_to_audio',
         inputFieldNames: { video: 'video_id' }
@@ -46,7 +57,7 @@ const PIPELINE_STEPS: PipelineStep[] = [
     },
 ];
 
-// --- API Helper Functions ---
+// --- API Helper Functions (keep as is) ---
 async function fetchApi<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
     // ... same as before ...
     const url = `${API_BASE_URL}${endpoint}`;
@@ -64,13 +75,11 @@ async function fetchApi<T>(endpoint: string, options: RequestInit = {}): Promise
             let errorDetail = `HTTP error! Status: ${response.status} ${response.statusText}`;
             let errorJson: any = null;
             try {
-                // Check content type before parsing JSON
                 const contentType = response.headers.get('content-type');
                 if (contentType && contentType.includes('application/json')) {
                     errorJson = await response.json();
                     errorDetail = errorJson.detail || JSON.stringify(errorJson) || errorDetail;
                 } else {
-                    // Try reading as text for non-JSON errors
                     const textError = await response.text();
                     errorDetail = textError || errorDetail;
                 }
@@ -78,20 +87,18 @@ async function fetchApi<T>(endpoint: string, options: RequestInit = {}): Promise
             } catch (e) {
                 console.warn("Could not parse error response body:", e)
             }
-            console.error(`API Error Response (${url}):`, errorDetail, errorJson); // Log detailed error
-            throw new Error(errorDetail); // Throw the detailed message
+            console.error(`API Error Response (${url}):`, errorDetail, errorJson);
+            throw new Error(errorDetail);
         }
 
         if (response.status === 204 || response.headers.get('content-length') === '0') {
             return null as T;
         }
 
-        // Assuming successful responses are JSON unless handled otherwise (like downloads)
         return response.json() as Promise<T>;
 
     } catch (error) {
         console.error(`API Fetch Error (${url}):`, error);
-        // Ensure we throw an Error object with a message
         if (error instanceof Error) {
             throw error;
         } else {
@@ -100,12 +107,10 @@ async function fetchApi<T>(endpoint: string, options: RequestInit = {}): Promise
     }
 }
 
-// --- Utility Functions ---
-// Keep utility functions here for now, or move to utils.ts
+// --- Utility Functions (keep as is) ---
 const getBaseNameForComparison = (filename: string | undefined): string => {
     // ... same as before ...
     if (!filename) return '';
-    // Remove known suffixes first, then the final extension
     return filename
         .replace('_audio', '')
         .replace('_transcript', '')
@@ -113,15 +118,12 @@ const getBaseNameForComparison = (filename: string | undefined): string => {
         .replace('_recap', '')
         .replace('_summary', '')
         .replace('_prompt', '')
-        .replace('_snippet', '')
+        .replace('_snippet', '') // Add snippet removal
+        .replace(/_speaker_[A-Z]/i, '') // Add specific speaker snippet removal
         .replace('_speaker_map', '')
-        .replace(/\.\w+$/, ''); // Remove final extension
+        .replace(/\.\w+$/, '');
 };
-
-// --- Simple Path.stem equivalent --- (Should be in utils)
 namespace Path { export function stem(filename: string): string { const parts = filename.split('.'); parts.pop(); return parts.join('.'); } }
-
-// --- tryFormatJson --- (Should be in utils)
 const tryFormatJson = (jsonString: string | null): string => {
     if (!jsonString) return '';
     try {
@@ -134,8 +136,7 @@ const tryFormatJson = (jsonString: string | null): string => {
 
 // --- Main App Component ---
 function App() {
-    // --- State Declarations ---
-    // Keep ALL state here for now
+    // --- State Declarations (keep as is) ---
     const [resources, setResources] = useState<Resource[]>([]);
     const [selectedResourceIds, setSelectedResourceIds] = useState<Set<string>>(new Set());
     const [previewContent, setPreviewContent] = useState<{ [id: string]: PreviewContent }>({});
@@ -157,26 +158,31 @@ function App() {
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     // --- Data Fetching & Logic Callbacks ---
-    // Keep ALL logic here for now
-
-    const fetchResources = useCallback(async () => {
+    const fetchResources = useCallback(async (selectIds: string[] = []) => { // Allow passing IDs to select
         setIsLoadingResources(true);
+        let newlyFetchedResources: Resource[] = [];
         try {
             const data = await fetchApi<Resource[]>('/resources');
-            setResources(data || []);
+            newlyFetchedResources = data || [];
+            setResources(newlyFetchedResources);
+            if (selectIds.length > 0) {
+                setSelectedResourceIds(prev => new Set([...Array.from(prev), ...selectIds]));
+            }
         } catch (err: any) {
             setError(`Failed to fetch resources: ${err.message}`);
-            setResources([]);
+            setResources([]); // Clear resources on fetch error
+            setSelectedResourceIds(new Set()); // Clear selection as well
         } finally {
             setIsLoadingResources(false);
         }
-    }, []);
+        return newlyFetchedResources; // Return fetched data for chaining
+    }, []); // No dependencies needed here, it's self-contained
 
     useEffect(() => {
         fetchResources();
-    }, [fetchResources]);
+    }, [fetchResources]); // Initial fetch
 
-    const toggleResourceSelection = useCallback((id: string) => { // Use useCallback
+    const toggleResourceSelection = useCallback((id: string) => {
         setSelectedResourceIds(prev => {
             const newSet = new Set(prev);
             if (newSet.has(id)) {
@@ -186,14 +192,16 @@ function App() {
             }
             return newSet;
         });
-        setStepErrors({}); // Clear step errors on selection change
-    }, []); // Add dependency array if needed, empty is fine here
+        setStepErrors({});
+    }, []);
 
     const selectedResources = useMemo(() => {
+        // Ensure resources array is up-to-date when calculating selectedResources
         return resources.filter(r => selectedResourceIds.has(r.id));
     }, [resources, selectedResourceIds]);
 
-    // --- Preview Fetching Effect ---
+
+    // --- Preview Fetching Effect (keep as is) ---
     useEffect(() => {
         const fetchPreview = async (resource: Resource) => {
             if (previewContent[resource.id] || isLoadingPreview.has(resource.id)) return;
@@ -229,12 +237,13 @@ function App() {
             }
         };
 
+        // Use the memoized selectedResources
         selectedResources.forEach(fetchPreview);
 
-    }, [selectedResources, previewContent, isLoadingPreview]); // Dependencies remain correct
+    }, [selectedResources, previewContent, isLoadingPreview]); // Dependencies
 
 
-    // --- Upload Logic ---
+    // --- Upload Logic (keep as is) ---
     const onDrop = useCallback(async (acceptedFiles: File[]) => {
         setUploadError(null);
         setUploadProgress(0);
@@ -250,8 +259,10 @@ function App() {
             const ext = filename.split('.').pop()?.toLowerCase();
             if (!ext) return null;
             if (filename.toLowerCase().includes('prompt') && ext === 'txt') return 'text_prompt';
+            // Allow uploading speaker maps directly
+            if (filename.toLowerCase().includes('speaker_map') && ext === 'json') return 'json_speaker_map';
             if (ext === 'json') return 'json_transcript';
-            if (ext === 'txt') return 'text_session';
+            if (ext === 'txt') return 'text_session'; // Default txt to session if not prompt
             if (['mp3', 'wav', 'ogg', 'm4a', 'flac'].includes(ext)) return 'audio';
             if (['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext)) return 'video';
             return null;
@@ -282,35 +293,32 @@ function App() {
         });
 
         await Promise.all(uploadPromises);
-        fetchResources();
+        await fetchResources(); // Wait for fetch to complete
         setTimeout(() => setUploadProgress(null), 1500);
 
-    }, [fetchResources]); // fetchResources dependency
+    }, [fetchResources]);
 
-    // --- Dropzone Hook ---
+    // --- Dropzone Hook (keep as is) ---
     const { getRootProps, getInputProps, isDragActive } = useDropzone({
         onDrop,
         noClick: true,
         multiple: true,
-        accept: ACCEPTED_FILE_TYPES.split(',').reduce((acc, ext) => { // Generate accept prop dynamically
-            acc[ext.trim()] = [];
+        accept: ACCEPTED_FILE_TYPES.split(',').reduce((acc, ext) => {
+            const mimeType = ext.trim(); // Basic mapping, adjust if needed
+            acc[mimeType] = [];
             return acc;
         }, {} as Record<string, string[]>),
     });
 
-    // --- Click/Select Handlers ---
-    const handleUploadClick = useCallback(() => { // Use useCallback
-        fileInputRef.current?.click();
-    }, []);
-
-    const handleFileSelected = useCallback((event: React.ChangeEvent<HTMLInputElement>) => { // Use useCallback
-        if (event.target.files) {
-            onDrop(Array.from(event.target.files));
-        }
-        event.target.value = ''; // Reset file input
+    // --- Click/Select Handlers (keep as is, except for download/delete logic) ---
+    const handleUploadClick = useCallback(() => { fileInputRef.current?.click(); }, []);
+    const handleFileSelected = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+        if (event.target.files) { onDrop(Array.from(event.target.files)); }
+        event.target.value = '';
     }, [onDrop]);
 
-    const handleDownloadSelected = useCallback(() => { // Use useCallback
+    // Use the memoized selectedResources for handlers
+    const handleDownloadSelected = useCallback(() => {
         if (selectedResources.length === 0) return;
         selectedResources.forEach(resource => {
             const link = document.createElement('a');
@@ -320,25 +328,26 @@ function App() {
             link.click();
             document.body.removeChild(link);
         });
-        setSelectedResourceIds(new Set()); // Clear selection after download
-    }, [selectedResources]); // Dependency on selectedResources
+        // Optional: Clear selection after download?
+        // setSelectedResourceIds(new Set());
+    }, [selectedResources]);
 
-    const handleDeleteSelected = useCallback(() => { // Use useCallback
+    const handleDeleteSelected = useCallback(() => {
         if (selectedResources.length === 0) return;
         setShowDeleteConfirmModal(true);
-        setResourceToDelete(null); // Indicate deleting selection
-    }, [selectedResources]); // Dependency on selectedResources
+        setResourceToDelete(null);
+    }, [selectedResources]);
 
-    const confirmDeletion = useCallback(async () => { // Use useCallback
-        const idsToDelete = resourceToDelete ? [resourceToDelete.id] : Array.from(selectedResourceIds);
-        const resourcesToDelete = resourceToDelete ? [resourceToDelete] : selectedResources;
+    const confirmDeletion = useCallback(async () => {
+        const resourcesToDeleteNow = resourceToDelete ? [resourceToDelete] : selectedResources; // Use state at time of click
+        const idsToDelete = resourcesToDeleteNow.map(r => r.id);
 
         if (idsToDelete.length === 0) return;
 
         setError(null);
         let deleteErrors = "";
 
-        const deletePromises = resourcesToDelete.map(res =>
+        const deletePromises = resourcesToDeleteNow.map(res =>
             fetchApi(`/resource/${res.type}/${res.id}`, { method: 'DELETE' })
                 .catch(err => {
                     console.error(`Failed to delete ${res.original_name} (ID: ${res.id}):`, err);
@@ -348,138 +357,275 @@ function App() {
 
         await Promise.all(deletePromises);
 
-        if (deleteErrors) {
-            setError(deleteErrors.trim());
-        }
+        if (deleteErrors) { setError(deleteErrors.trim()); }
 
         setShowDeleteConfirmModal(false);
         setResourceToDelete(null);
-        setSelectedResourceIds(prev => { // Optimistic update of selection
+        setSelectedResourceIds(prev => { // Update selection based on what was *intended* for deletion
             const newSet = new Set(prev);
             idsToDelete.forEach(id => newSet.delete(id));
             return newSet;
         });
-        fetchResources(); // Refresh the list
-    }, [resourceToDelete, selectedResourceIds, selectedResources, fetchResources]); // Dependencies
+        await fetchResources(); // Refresh list from server *after* deletion attempts
 
-    const cancelDeletion = useCallback(() => { // Use useCallback
+    }, [resourceToDelete, selectedResources, fetchResources]); // Depend on selectedResources used in the callback scope
+
+    const cancelDeletion = useCallback(() => {
         setShowDeleteConfirmModal(false);
         setResourceToDelete(null);
     }, []);
 
-    const handleDeleteClick = useCallback((e: React.MouseEvent, resource: Resource) => { // Use useCallback
-        e.stopPropagation(); // Prevent triggering row selection
+    const handleDeleteClick = useCallback((e: React.MouseEvent, resource: Resource) => {
+        e.stopPropagation();
         setResourceToDelete(resource);
         setShowDeleteConfirmModal(true);
     }, []);
 
+
     // --- Pipeline Processing Logic ---
     const processJob = useCallback(async (job: ProcessingJob) => {
         setStepErrors(prev => ({ ...prev, [job.stepId]: null }));
+        if (job.metaStepId) {
+            setStepErrors(prev => ({ ...prev, [job.metaStepId || job.stepId]: null }));
+        }
         setCurrentlyProcessing(job);
 
         const step = PIPELINE_STEPS.find(s => s.id === job.stepId);
         if (!step) {
             const errorMsg = `Internal error: Invalid step ID ${job.stepId}`;
             console.error(errorMsg);
-            setError(errorMsg);
-            setCurrentlyProcessing(null);
-            setProcessingQueue([]); // Clear queue on internal error
-            return;
-        }
-
-        const formData = new FormData();
-        const keyRequirements = step.requiresKeys || [];
-
-        for (const keyName of keyRequirements) {
-            const apiKey = keyName === 'assemblyAi' ? apiKeys.assemblyAi : apiKeys.googleGemini;
-            if (!apiKey) {
-                const errorMsg = `API Key "${keyName}" is required for step "${step.name}".`;
-                setStepErrors(prev => ({ ...prev, [job.stepId]: errorMsg }));
-                setCurrentlyProcessing(null);
-                setProcessingQueue([]); // Clear queue
-                return;
-            }
-            const backendKeyName = keyName === 'assemblyAi' ? 'assemblyai_api_key' : 'google_gemini_api_key';
-            formData.append(backendKeyName, apiKey);
-        }
-
-        const inputResources = resources.filter(r => job.inputResourceIds.includes(r.id));
-        let missingInput = false;
-        step.inputs.forEach(inputType => {
-            const resource = inputResources.find(r => r.type === inputType);
-            if (resource) {
-                const fieldName = step.inputFieldNames?.[inputType] || `${inputType}_id`;
-                formData.append(fieldName, resource.id);
-            } else {
-                const errorMsg = `Internal error: Missing required input of type '${inputType}' for step "${step.name}".`;
-                setStepErrors(prev => ({ ...prev, [job.stepId]: errorMsg }));
-                missingInput = true;
-            }
-        });
-
-        if (missingInput) {
+            const errorKey = job.metaStepId || job.stepId;
+            setStepErrors(prev => ({ ...prev, [errorKey]: errorMsg }));
             setCurrentlyProcessing(null);
             setProcessingQueue([]);
             return;
         }
 
+        const formData = new FormData();
+        const keyRequirements = step.requiresKeys || [];
+        let missingKey = false;
+
+        for (const keyName of keyRequirements) {
+            const apiKey = keyName === 'assemblyAi' ? apiKeys.assemblyAi : apiKeys.googleGemini;
+            if (!apiKey) {
+                const errorMsg = `API Key "${keyName}" is required for step "${step.name}".`;
+                const errorKey = job.metaStepId || job.stepId;
+                setStepErrors(prev => ({ ...prev, [errorKey]: errorMsg }));
+                setCurrentlyProcessing(null);
+                setProcessingQueue([]);
+                missingKey = true;
+                break;
+            }
+            const backendKeyName = keyName === 'assemblyAi' ? 'assemblyai_api_key' : 'google_gemini_api_key';
+            formData.append(backendKeyName, apiKey);
+        }
+        if (missingKey) return;
+
+        // Fetch the latest resources *before* finding inputs
+        const currentResources = await fetchResources(); // Fetch and update state, get latest list
+
+        const inputResourcesForCurrentJob = currentResources.filter(r => job.inputResourceIds.includes(r.id));
+        let missingInputForCurrentJob = false;
+        step.inputs.forEach(inputType => {
+            const resource = inputResourcesForCurrentJob.find(r => r.type === inputType);
+            if (resource) {
+                const fieldName = step.inputFieldNames?.[inputType] || `${inputType}_id`;
+                formData.append(fieldName, resource.id);
+            } else {
+                const errorMsg = `Internal error: Missing required input of type '${inputType}' for step "${step.name}" (Job inputs: ${job.inputResourceIds.join(', ')}). Resources available: ${currentResources.map(r => r.id + ':' + r.type).join('; ')}`;
+                console.error(errorMsg, "Input resources found for current job:", inputResourcesForCurrentJob);
+                const errorKey = job.metaStepId || job.stepId;
+                setStepErrors(prev => ({ ...prev, [errorKey]: errorMsg }));
+                missingInputForCurrentJob = true;
+            }
+        });
+
+        if (missingInputForCurrentJob) {
+            setCurrentlyProcessing(null);
+            setProcessingQueue([]);
+            return;
+        }
+
+        let jobSuccessful = false;
+        let resultResourceIds: string[] = [];
+        let generatedResources: Resource[] = [];
+
         try {
-            console.log(`Calling endpoint ${step.endpoint} for job:`, job);
+            console.log(`Calling endpoint ${step.endpoint} for job step: ${job.stepId}`, job);
             console.log("FormData being sent:", Object.fromEntries(formData.entries()));
 
-            const result = await fetchApi<Resource | { [key: string]: Resource }>(step.endpoint, {
+            const result = await fetchApi<Resource | { [key: string]: Resource } | null>(step.endpoint, {
                 method: 'POST',
                 body: formData,
             });
 
-            await fetchResources(); // Use await to ensure list is updated before potential next step
+            console.log(`Step ${job.stepId} API call completed. Result:`, result);
 
-            let newResourceIds: string[] = [];
-            if (step.id === 'transcript_to_snippets' && typeof result === 'object' && result !== null) {
-                const generatedSnippets = Object.values(result as { [key: string]: Resource });
-                if (generatedSnippets.length > 0) {
-                    setSnippetsForMapping(generatedSnippets);
-                    setShowSpeakerMapForm(true);
-                    newResourceIds = generatedSnippets.map(s => s.id);
+            let fetchedAfterProcessing: Resource[] = [];
+            if (result && typeof result === 'object') {
+                if ('id' in result) {
+                    resultResourceIds = [(result as Resource).id];
+                    generatedResources = [result as Resource];
                 } else {
-                    setStepErrors(prev => ({ ...prev, [job.stepId]: "Snippet generation returned no snippets." }));
+                    generatedResources = Object.values(result);
+                    resultResourceIds = generatedResources.map(r => r.id);
                 }
-            } else if (result && typeof result === 'object' && 'id' in result) {
-                const newResource = result as Resource;
-                newResourceIds = [newResource.id];
+                fetchedAfterProcessing = await fetchResources(resultResourceIds); // Fetch AND select new IDs
             } else {
-                console.log(`Step ${step.id} completed, no specific resource returned.`);
+                fetchedAfterProcessing = await fetchResources();
+                console.log(`Step ${step.id} completed, but no specific resource was returned or result was null.`);
             }
 
-            // Select newly created resources
-            if (newResourceIds.length > 0) {
-                setSelectedResourceIds(prev => new Set([...Array.from(prev), ...newResourceIds]));
+            const currentResourcesAfterStep = fetchedAfterProcessing;
+
+            // --- Handle Sequence Continuation ---
+            if (job.metaStepId && job.sequenceSteps && job.currentSequenceIndex !== undefined) {
+                const nextSequenceIndex = job.currentSequenceIndex + 1;
+                if (nextSequenceIndex < job.sequenceSteps.length) {
+                    const nextStepId = job.sequenceSteps[nextSequenceIndex];
+                    const nextStepDef = PIPELINE_STEPS.find(s => s.id === nextStepId);
+                    const completedStepOutput = step.output; // Type of resource just created
+
+                    if (nextStepDef) {
+                        console.log(`Sequence: Preparing next step ${nextStepId} (needs inputs: ${nextStepDef.inputs.join(', ')})`);
+                        let nextInputResourcesFound: Resource[] = [];
+                        let nextInputIds: string[] = [];
+                        let inputsMissingForNext = false;
+                        let baseNameToMatch: string | null = null;
+
+                        // --- Determine the base name for this sequence instance ---
+                        // Prioritize using the generated resource from the *completed* step
+                        if (generatedResources.length > 0) {
+                            baseNameToMatch = getBaseNameForComparison(generatedResources[0].original_name);
+                        } else if (job.originalInputResourceIds && job.originalInputResourceIds.length > 0) {
+                            // Fallback: try getting base name from the *original* input if the completed step produced no direct resource
+                            const originalResource = currentResourcesAfterStep.find(r => r.id === job.originalInputResourceIds![0]);
+                            if (originalResource) {
+                                baseNameToMatch = getBaseNameForComparison(originalResource.original_name);
+                            }
+                        }
+                        console.log(`Sequence: Base name to match for finding inputs for ${nextStepId}:`, baseNameToMatch);
+
+                        // --- Find necessary inputs for the next step ---
+                        for (const nextInputType of nextStepDef.inputs) {
+                            let foundInputForType: Resource | null = null;
+
+                            // 1. Check direct output of the completed step
+                            //    (e.g., json_transcript from audio_to_transcript)
+                            if (nextInputType === completedStepOutput) {
+                                // Find *one* resource matching the type from the generated ones.
+                                // Assumes the next step only needs one instance of this type.
+                                const matchingGenerated = generatedResources.find(r => r.type === nextInputType);
+                                if (matchingGenerated) {
+                                    foundInputForType = matchingGenerated;
+                                    console.log(`Sequence: Input ${nextInputType} found from direct output: ${foundInputForType.id}`);
+                                }
+                            }
+
+                            // 2. If not found above, search *all* resources using the base name
+                            //    (e.g., finding the 'audio' file using the base name when 'json_transcript' was just generated)
+                            if (!foundInputForType && baseNameToMatch) {
+                                const potentialMatches = currentResourcesAfterStep.filter(r =>
+                                    r.type === nextInputType &&
+                                    getBaseNameForComparison(r.original_name) === baseNameToMatch
+                                );
+
+                                if (potentialMatches.length === 1) {
+                                    foundInputForType = potentialMatches[0];
+                                    console.log(`Sequence: Input ${nextInputType} found by base name match: ${foundInputForType.id}`);
+                                } else if (potentialMatches.length > 1) {
+                                    // Sort by creation date descending (newest first) as a heuristic
+                                    potentialMatches.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+                                    foundInputForType = potentialMatches[0]; // Take the newest
+                                    console.warn(`Sequence: Ambiguous base name match for ${nextInputType} with base name ${baseNameToMatch}. Found ${potentialMatches.length} resources. Using the newest one: ${foundInputForType.id}`);
+                                }
+                                // else: potentialMatches.length === 0 -> still not found
+                            }
+
+                            // Add the found resource (if any) to the list for the next job
+                            if (foundInputForType) {
+                                if (!nextInputIds.includes(foundInputForType.id)) {
+                                    nextInputResourcesFound.push(foundInputForType);
+                                    nextInputIds.push(foundInputForType.id);
+                                }
+                            } else {
+                                // Input genuinely couldn't be found
+                                console.error(`Sequence Error: Could not find required input '${nextInputType}' for the next step '${nextStepId}' (Base name: ${baseNameToMatch}). Check resource list and naming conventions.`);
+                                const errorKey = job.metaStepId || job.stepId;
+                                // Be specific about which input failed
+                                setStepErrors(prev => ({ ...prev, [errorKey]: `Sequence failed: Could not find input '${nextInputType}' for step '${nextStepDef.name}'.` }));
+                                inputsMissingForNext = true;
+                                break; // Stop looking for inputs for this next job
+                            }
+                        } // End loop through nextStepDef.inputs
+
+                        // --- Create and queue the next job if all inputs were found ---
+                        if (!inputsMissingForNext) {
+                            const nextJob: ProcessingJob = {
+                                stepId: nextStepId,
+                                inputResourceIds: [...new Set(nextInputIds)], // Ensure unique IDs
+                                inputOriginalNames: Object.fromEntries(nextInputResourcesFound.map(r => [r.id, r.original_name || r.filename])), // Use filename as fallback
+                                apiKeys: nextStepDef.requiresKeys ? apiKeys : undefined,
+                                metaStepId: job.metaStepId,
+                                sequenceSteps: job.sequenceSteps,
+                                currentSequenceIndex: nextSequenceIndex,
+                                originalInputResourceIds: job.originalInputResourceIds,
+                            };
+                            console.log("Sequence: Queueing next job", nextJob);
+                            setProcessingQueue(prev => [...prev, nextJob]);
+                        } else {
+                            setProcessingQueue([]); // Clear queue if next step cannot be prepared
+                        }
+
+                    } else { // nextStepDef not found
+                        console.error(`Sequence Error: Next step ID '${nextStepId}' not found in PIPELINE_STEPS.`);
+                        const errorKey = job.metaStepId || job.stepId;
+                        setStepErrors(prev => ({ ...prev, [errorKey]: `Sequence failed: Invalid next step ID '${nextStepId}'.` }));
+                        setProcessingQueue([]);
+                    }
+                } else { // Last step in sequence completed
+                    console.log(`Sequence for ${job.metaStepId} completed successfully at step ${job.stepId}.`);
+                    // Optional: Select the final output resources?
+                    // setSelectedResourceIds(new Set(resultResourceIds));
+                }
+            } // End sequence handling block
+
+
+            // --- Handle Speaker Mapping Modal ---
+            if (step.id === 'transcript_to_snippets' && generatedResources.length > 0 && generatedResources[0].type === 'snippet') {
+                const generatedSnippets = generatedResources as Resource[];
+                setSnippetsForMapping(generatedSnippets);
+                setShowSpeakerMapForm(true);
             }
+
+            jobSuccessful = true;
 
         } catch (err: any) {
-            console.error(`Error processing job ${job.stepId}:`, err);
-            setStepErrors(prev => ({ ...prev, [job.stepId]: `Step "${step.name}" failed: ${err.message}` }));
-            setProcessingQueue([]); // Stop queue on error
+            console.error(`Error processing job ${job.stepId} (part of ${job.metaStepId || 'standalone'}):`, err);
+            const errorKey = job.metaStepId || job.stepId;
+            setStepErrors(prev => ({ ...prev, [errorKey]: `Step "${step.name}" failed: ${err.message}` }));
+            setProcessingQueue([]);
         } finally {
             setCurrentlyProcessing(null);
         }
 
-    }, [apiKeys, fetchResources, resources]); // Dependencies
+    }, [apiKeys, fetchResources, getBaseNameForComparison]);
 
-    // --- Queue Runner Effect ---
+
+    // --- Queue Runner Effect (keep as is) ---
     useEffect(() => {
         if (!currentlyProcessing && processingQueue.length > 0) {
             const nextJob = processingQueue[0];
             setProcessingQueue(prev => prev.slice(1));
-            processJob(nextJob);
+            processJob(nextJob); // Process the job
         }
-    }, [currentlyProcessing, processingQueue, processJob]); // Dependencies
+    }, [currentlyProcessing, processingQueue, processJob]); // processJob is now a dependency
 
     // --- Start/Stop Processing Handlers ---
+    // *** MODIFY handleStartProcessing TO HANDLE META-STEPS ***
     const handleStartProcessing = useCallback((step: PipelineStep) => {
         setError(null);
-        setStepErrors(prev => ({ ...prev, [step.id]: null }));
+        setStepErrors(prev => ({ ...prev, [step.id]: null })); // Clear previous errors for this step
         console.log(`Attempting to start step: ${step.id}`);
         console.log("Current selectedResourceIds:", selectedResourceIds);
         console.log("Current apiKeys:", apiKeys);
@@ -487,55 +633,111 @@ function App() {
         const newJobs: ProcessingJob[] = [];
         const currentSelectedResources = resources.filter(r => selectedResourceIds.has(r.id));
 
-        if (step.multiInput && step.inputs.length > 0) {
+        if (currentSelectedResources.length === 0) {
+            setStepErrors(prev => ({ ...prev, [step.id]: "No resources selected." }));
+            return;
+        }
+
+        // --- Handle Meta-Step ---
+        if (step.sequence && step.sequence.length > 0) {
+            const firstStepId = step.sequence[0];
+            const firstStepDef = PIPELINE_STEPS.find(s => s.id === firstStepId);
+
+            if (!firstStepDef) {
+                const errorMsg = `Internal Error: First step '${firstStepId}' of sequence '${step.name}' not found.`;
+                console.error(errorMsg);
+                setStepErrors(prev => ({ ...prev, [step.id]: errorMsg }));
+                return;
+            }
+
+            // Initial input type for the *meta-step*
+            const initialInputType = step.inputs[0];
+            const selectedInitialInputs = currentSelectedResources.filter(r => r.type === initialInputType);
+
+            if (selectedInitialInputs.length === 0) {
+                const errorMsg = `Invalid selection for sequence "${step.name}". Select required input(s): ${step.inputs.join(', ')}.`;
+                setStepErrors(prev => ({ ...prev, [step.id]: errorMsg }));
+                return;
+            }
+
+            // Create one sequence job chain for each selected initial input
+            selectedInitialInputs.forEach(initialResource => {
+                newJobs.push({
+                    // Job targets the *first actual step*
+                    stepId: firstStepId,
+                    inputResourceIds: [initialResource.id],
+                    inputOriginalNames: { [initialResource.id]: initialResource.original_name },
+                    apiKeys: firstStepDef.requiresKeys ? apiKeys : undefined,
+                    // --- Sequence Info ---
+                    metaStepId: step.id,
+                    sequenceSteps: step.sequence,
+                    currentSequenceIndex: 0, // Start at index 0
+                    originalInputResourceIds: [initialResource.id] // Track the initial input
+                });
+            });
+            console.log(`Created ${newJobs.length} sequence job(s) starting with ${firstStepId}`);
+
+        }
+        // --- Handle Regular Multi-Input Step ---
+        else if (step.multiInput && step.inputs.length > 0) {
+            // Group selected resources by base name to find matching sets
             const groups: { [baseName: string]: { [type in ResourceTypeString]?: Resource } } = {};
             currentSelectedResources.forEach(res => {
                 let base = getBaseNameForComparison(res.original_name);
+                if (!base) base = `no_base_${res.id}`; // Handle potential empty base names
                 if (!groups[base]) groups[base] = {};
+                // Allow multiple resources of the same type for a base name? No, assume one for now.
                 groups[base][res.type] = res;
             });
 
             Object.values(groups).forEach(group => {
                 const hasAllInputs = step.inputs.every(inputType => group[inputType]);
                 if (hasAllInputs) {
-                    const inputIds = step.inputs.map(inputType => group[inputType]!.id);
+                    const inputResourcesForJob = step.inputs.map(inputType => group[inputType]!);
+                    const inputIds = inputResourcesForJob.map(res => res.id);
                     newJobs.push({
                         stepId: step.id,
                         inputResourceIds: inputIds,
                         apiKeys: step.requiresKeys ? apiKeys : undefined,
-                        inputOriginalNames: Object.fromEntries(inputIds.map(id => [id, resources.find(r => r.id === id)?.original_name || '']))
+                        inputOriginalNames: Object.fromEntries(inputResourcesForJob.map(r => [r.id, r.original_name]))
+                        // No sequence info for regular steps
                     });
                 }
             });
 
-            // Fallback: If heuristic failed but exactly one of each required type is selected
+            // Fallback: If grouping failed but exactly one of each required type is selected globally
             if (newJobs.length === 0) {
                 const requiredInputsSelected = step.inputs.map(inputType =>
                     currentSelectedResources.filter(r => r.type === inputType)
                 );
                 const exactlyOneOfEachSelected = requiredInputsSelected.every(list => list.length === 1);
+                const totalSelectedMatchesInputCount = currentSelectedResources.length === step.inputs.length;
 
-                if (exactlyOneOfEachSelected) {
-                    console.log(`Pairing heuristic failed for step ${step.id}, using selected pair.`);
-                    const inputIds = requiredInputsSelected.map(list => list[0].id);
+                if (exactlyOneOfEachSelected && totalSelectedMatchesInputCount) {
+                    console.log(`Grouping heuristic failed for step ${step.id}, using globally selected pair.`);
+                    const inputResourcesForJob = requiredInputsSelected.map(list => list[0]);
+                    const inputIds = inputResourcesForJob.map(res => res.id);
                     newJobs.push({
                         stepId: step.id,
                         inputResourceIds: inputIds,
                         apiKeys: step.requiresKeys ? apiKeys : undefined,
-                        inputOriginalNames: Object.fromEntries(inputIds.map(id => [id, resources.find(r => r.id === id)?.original_name || '']))
+                        inputOriginalNames: Object.fromEntries(inputResourcesForJob.map(r => [r.id, r.original_name]))
                     });
                 }
             }
-
-        } else if (step.inputs.length === 1) {
+        }
+        // --- Handle Regular Single-Input Step ---
+        else if (step.inputs.length === 1) {
+            const inputType = step.inputs[0];
             currentSelectedResources
-                .filter(r => r.type === step.inputs[0])
+                .filter(r => r.type === inputType)
                 .forEach(resource => {
                     newJobs.push({
                         stepId: step.id,
                         inputResourceIds: [resource.id],
                         apiKeys: step.requiresKeys ? apiKeys : undefined,
                         inputOriginalNames: { [resource.id]: resource.original_name }
+                        // No sequence info for regular steps
                     });
                 });
         }
@@ -543,49 +745,55 @@ function App() {
         // --- Final Check and Queueing ---
         if (newJobs.length > 0) {
             setProcessingQueue(prev => [...prev, ...newJobs]);
-        } else {
-            const errorMsg = `Invalid selection for step "${step.name}". Select required input(s): ${step.inputs.join(', ')}.`;
+        } else if (!step.sequence) { // Only show error if no jobs were created *and* it wasn't a meta-step (meta-step error handled above)
+            const errorMsg = `Invalid selection for step "${step.name}". Select required input(s): ${step.inputs.join(', ')}. Check naming conventions for multi-input steps.`;
             setStepErrors(prev => ({ ...prev, [step.id]: errorMsg }));
         }
-    }, [selectedResourceIds, apiKeys, resources]); // Dependencies
+    }, [selectedResourceIds, apiKeys, resources, getBaseNameForComparison]); // Added resources and getBaseNameForComparison
 
-    const handleStopProcessing = useCallback(() => { // Use useCallback
-        setProcessingQueue([]);
+
+    const handleStopProcessing = useCallback(() => {
+        setProcessingQueue([]); // Clear the queue
+        // Note: The currently running job (if any) cannot be easily interrupted from the frontend.
+        // It will finish, but no subsequent jobs will be started.
         if (currentlyProcessing) {
-            console.log("Processing queue stopped. Current job will finish.");
+            console.log("Processing queue cleared. Current job will finish.");
+            // Optional: Reset currentlyProcessing state visually immediately?
+            // setCurrentlyProcessing(null); // This might cause UI flicker if the job finishes right after.
         }
-    }, [currentlyProcessing]); // Dependency
+    }, [currentlyProcessing]);
 
-    // --- Speaker Map Logic ---
-    const handleSpeakerNameChange = useCallback((label: string, name: string) => { // Use useCallback
+    // --- Speaker Map Logic (mostly unchanged, but ensure fetchResources updates state) ---
+    const handleSpeakerNameChange = useCallback((label: string, name: string) => {
         setSpeakerMapInput(prev => ({ ...prev, [label]: name }));
     }, []);
 
-    const submitSpeakerMap = useCallback(async () => { // Use useCallback
-        if (Object.keys(speakerMapInput).length === 0) {
+    const submitSpeakerMap = useCallback(async () => {
+        const filledEntries = Object.entries(speakerMapInput).filter(([_, name]) => name.trim() !== '');
+        if (filledEntries.length === 0) {
             setStepErrors(prev => ({ ...prev, 'transcript_to_snippets': "Please enter names for the speakers." }));
             return;
         }
+        // Use the specific step ID where the error should appear
         setStepErrors(prev => ({ ...prev, 'transcript_to_snippets': null }));
 
         try {
-            const mapJsonString = JSON.stringify(speakerMapInput, null, 2);
+            // Use only the filled entries for the map
+            const mapToSave = Object.fromEntries(filledEntries);
+            const mapJsonString = JSON.stringify(mapToSave, null, 2);
             const blob = new Blob([mapJsonString], { type: 'application/json' });
 
-            let baseName = "session";
+            let baseName = "session"; // Default
+            // Try to derive baseName from the *first* snippet being mapped
             if (snippetsForMapping.length > 0) {
-                // Find the resource (likely transcript or audio) that led to these snippets
-                // This requires knowing the inputResourceIds of the job that created the snippets
-                // For simplicity now, use the first snippet's base name, assuming consistency
                 const firstSnippetOriginName = snippetsForMapping[0].original_name;
-                // Attempt to strip known snippet suffixes robustly
-                baseName = firstSnippetOriginName
-                    .replace(/_speaker_[A-Z]_snippet\.mp3$/i, '') // Remove speaker snippet suffix
-                    .replace(/_snippet\.mp3$/i, ''); // Remove generic snippet suffix (fallback)
-
-                // If still unsure, could try finding the original audio/transcript via job history if stored
-                // Or default to "session"
-                if (baseName === firstSnippetOriginName) baseName = "session"; // Reset if replace failed
+                // Use the robust getBaseNameForComparison utility
+                const derivedBaseName = getBaseNameForComparison(firstSnippetOriginName);
+                // Ensure it actually removed something, otherwise stick to default
+                if (derivedBaseName && derivedBaseName !== firstSnippetOriginName.replace(/\.\w+$/, '')) {
+                    baseName = derivedBaseName;
+                }
+                console.log("Derived base name for speaker map:", baseName);
             }
             const filename = `${baseName}_speaker_map.json`;
 
@@ -599,62 +807,74 @@ function App() {
             });
 
             if (uploadedMapResource) {
-                await fetchResources(); // Ensure resource list is updated
+                // Fetch resources AND select the newly uploaded map
+                await fetchResources([uploadedMapResource.id]);
                 setShowSpeakerMapForm(false);
                 setSnippetsForMapping([]);
                 setSpeakerMapInput({});
-                setSelectedResourceIds(prev => new Set([...Array.from(prev), uploadedMapResource.id])); // Select the new map
+                // Note: No automatic continuation of sequences here. User needs to manually start the next step (e.g., Transcript to Session)
             } else {
                 throw new Error("Speaker map upload did not return resource details.");
             }
         } catch (err: any) {
             console.error("Failed to submit speaker map:", err);
+            // Show error associated with the step that triggered the modal
             setStepErrors(prev => ({ ...prev, 'transcript_to_snippets': `Failed to save speaker map: ${err.message}` }));
         }
-    }, [speakerMapInput, snippetsForMapping, fetchResources]); // Dependencies
+    }, [speakerMapInput, snippetsForMapping, fetchResources, getBaseNameForComparison]); // Dependencies
 
-    // --- Eligibility & Validation Logic ---
-    const checkStepEligibility = useCallback((step: PipelineStep): boolean => { // Use useCallback
+
+    // --- Eligibility & Validation Logic (check sequence steps too) ---
+    const checkStepEligibility = useCallback((step: PipelineStep): boolean => {
         const currentSelectedResources = resources.filter(r => selectedResourceIds.has(r.id));
         if (currentSelectedResources.length === 0) return false;
 
-        if (step.multiInput) {
-            return step.inputs.every(inputType =>
+        // Use the step's defined inputs (for meta-steps, this is the *initial* input)
+        const requiredInputs = step.inputs;
+
+        if (step.multiInput || step.sequence) { // Meta-steps are treated like multi-input for eligibility check based on *initial* input
+            // Check if *at least one* resource of *each* required input type is selected
+            return requiredInputs.every(inputType =>
                 currentSelectedResources.some(r => r.type === inputType)
             );
-        } else if (step.inputs.length === 1) {
-            return currentSelectedResources.some(r => r.type === step.inputs[0]);
+        } else if (requiredInputs.length === 1) {
+            // Check if *at least one* resource of the single required type is selected
+            return currentSelectedResources.some(r => r.type === requiredInputs[0]);
         }
-        return false;
+        return false; // Should not happen with valid step definitions
     }, [resources, selectedResourceIds]); // Dependencies
 
-    const getFilenameMismatchWarning = useCallback((step: PipelineStep): string | null => { // Use useCallback
-        if (!step.multiInput || !step.inputs.includes('audio') || !step.inputs.includes('json_transcript')) {
+    // Filename mismatch warning needs context, maybe less relevant for sequences? Keep as is for now.
+    const getFilenameMismatchWarning = useCallback((step: PipelineStep): string | null => {
+        // Only apply to specific multi-input steps that benefit from matching names
+        if (!step.multiInput || step.id !== 'transcript_to_snippets') { // Example: only for this specific step
             return null;
         }
         const currentSelectedResources = resources.filter(r => selectedResourceIds.has(r.id));
         const selectedAudios = currentSelectedResources.filter(r => r.type === 'audio');
         const selectedTranscripts = currentSelectedResources.filter(r => r.type === 'json_transcript');
 
+        // Only warn if exactly one of each is selected (heuristic might fail otherwise)
         if (selectedAudios.length === 1 && selectedTranscripts.length === 1) {
             const audioBase = getBaseNameForComparison(selectedAudios[0].original_name);
             const transcriptBase = getBaseNameForComparison(selectedTranscripts[0].original_name);
 
-            if (audioBase !== transcriptBase) {
-                return `Warning: Selected audio (${selectedAudios[0].original_name}) and transcript (${selectedTranscripts[0].original_name}) may not match.`;
+            if (audioBase && transcriptBase && audioBase !== transcriptBase) {
+                return `Warning: Selected audio (${selectedAudios[0].original_name}) and transcript (${selectedTranscripts[0].original_name}) base names do not match.`;
             }
         }
         return null;
-    }, [resources, selectedResourceIds]); // Dependencies
+    }, [resources, selectedResourceIds, getBaseNameForComparison]); // Dependencies
 
 
-    // --- API Key Change Handler ---
+    // --- API Key Change Handler (keep as is) ---
     const handleApiKeyChange = useCallback((keyName: 'assemblyAi' | 'googleGemini', value: string) => {
         setApiKeys(prev => ({ ...prev, [keyName]: value }));
     }, []);
 
-    // --- Render Preview Function (passed down) ---
+    // --- Render Preview Function (keep as is) ---
     const renderPreview = useCallback((resource: Resource) => {
+        // ... (previous implementation is fine) ...
         const content = previewContent[resource.id];
         const isLoading = isLoadingPreview.has(resource.id);
 
@@ -679,10 +899,10 @@ function App() {
                         {content.type === 'unsupported' && <div className="text-center p-4 text-red-600 dark:text-red-400 text-sm">{content.error || 'Preview not available'}</div>}
                     </>
                 )}
-                {!isLoading && !content && <div className="text-center p-4 text-gray-400 dark:text-gray-500 text-sm">Select resource to load preview.</div>}
+                {!isLoading && !content && <div className="text-center p-4 text-gray-400 dark:text-gray-500 text-sm">Select resource(s) to load preview.</div>}
             </div>
         );
-    }, [previewContent, isLoadingPreview]); // Dependencies
+    }, [previewContent, isLoadingPreview, tryFormatJson]);
 
 
     // --- Main JSX Structure ---
@@ -711,31 +931,32 @@ function App() {
 
             {/* --- Preview Panel (Middle) --- */}
             <PreviewPanel
-                selectedResources={selectedResources}
+                selectedResources={selectedResources} // Pass the memoized value
                 renderPreview={renderPreview}
             />
 
             {/* --- Pipeline Panel (Right) --- */}
             <PipelinePanel
-                error={error}
+                error={error} // Global errors
                 apiKeys={apiKeys}
                 onApiKeyChange={handleApiKeyChange}
-                currentlyProcessing={currentlyProcessing}
+                currentlyProcessing={currentlyProcessing} // Pass the whole job object
                 processingQueue={processingQueue}
                 onStopProcessing={handleStopProcessing}
-                pipelineSteps={PIPELINE_STEPS}
-                stepErrors={stepErrors}
-                onStartProcessing={handleStartProcessing}
-                checkStepEligibility={checkStepEligibility}
-                getFilenameMismatchWarning={getFilenameMismatchWarning}
+                pipelineSteps={PIPELINE_STEPS} // Pass all steps including meta
+                stepErrors={stepErrors} // Pass step-specific errors
+                onStartProcessing={handleStartProcessing} // Pass the handler
+                checkStepEligibility={checkStepEligibility} // Pass eligibility checker
+                getFilenameMismatchWarning={getFilenameMismatchWarning} // Pass warning checker
             />
 
-            {/* --- Modals (Keep in App.tsx for now) --- */}
+            {/* --- Modals (Keep in App.tsx) --- */}
             {showSpeakerMapForm && (
                 <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-40">
                     <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-lg max-h-[80vh] overflow-y-auto">
                         <h2 className="text-xl font-semibold mb-4 text-gray-900 dark:text-gray-100">Identify Speakers</h2>
-                        <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">Listen to snippets and enter speaker names.</p>
+                        <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">Listen to snippets and enter speaker names. The speaker map will be saved as a new resource.</p>
+                        {/* Show error associated with the snippet step */}
                         {stepErrors['transcript_to_snippets'] && (
                             <p className="text-xs text-red-700 dark:text-red-200 bg-red-100 dark:bg-red-900/50 p-1.5 rounded mb-3 inline-flex items-center border border-red-300 dark:border-red-700">
                                 <span className="mr-1 flex-shrink-0"><FiAlertTriangle /></span> {stepErrors['transcript_to_snippets']}
@@ -744,10 +965,11 @@ function App() {
                         <div className="space-y-3">
                             {snippetsForMapping.map(snippet => {
                                 const match = snippet.original_name.match(/_speaker_([A-Z])_/i);
-                                const label = match ? match[1].toUpperCase() : 'Unknown';
+                                // Default to a generic label if pattern doesn't match, though it should
+                                const label = match ? match[1].toUpperCase() : `SPEAKER_${snippet.id.substring(0, 4)}`;
                                 return (
-                                    <div key={snippet.id} className="flex items-center space-x-3 border-b dark:border-gray-700 pb-3">
-                                        <label htmlFor={`speaker-input-${label}`} className="font-mono font-bold w-8 text-center text-gray-700 dark:text-gray-300">{label}:</label>
+                                    <div key={snippet.id} className="flex items-center space-x-3 border-b dark:border-gray-700 pb-3 last:border-b-0">
+                                        <label htmlFor={`speaker-input-${label}`} className="font-mono font-bold w-12 text-center text-gray-700 dark:text-gray-300 flex-shrink-0">{`Speaker ${label}:`}</label>
                                         <input
                                             type="text"
                                             id={`speaker-input-${label}`}
@@ -756,13 +978,14 @@ function App() {
                                             onChange={(e) => handleSpeakerNameChange(label, e.target.value)}
                                             className="flex-grow p-1.5 border border-gray-300 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-500 dark:focus:border-blue-500"
                                         />
-                                        <audio controls src={`${API_BASE_URL}/download/snippet/${snippet.id}`} className="h-8"></audio>
+                                        {/* Provide download URL directly to audio element */}
+                                        <audio controls src={`${API_BASE_URL}/download/snippet/${snippet.id}`} className="h-8 w-40 flex-shrink-0"></audio>
                                     </div>
                                 );
                             })}
                         </div>
                         <div className="mt-6 flex justify-end space-x-3">
-                            <button onClick={() => setShowSpeakerMapForm(false)} className="bg-gray-300 hover:bg-gray-400 dark:bg-gray-600 dark:hover:bg-gray-500 text-black dark:text-white px-4 py-1.5 rounded text-sm transition-colors duration-150" > Cancel </button>
+                            <button onClick={() => { setShowSpeakerMapForm(false); setSnippetsForMapping([]); setSpeakerMapInput({}); setStepErrors(prev => ({ ...prev, 'transcript_to_snippets': null })); }} className="bg-gray-300 hover:bg-gray-400 dark:bg-gray-600 dark:hover:bg-gray-500 text-black dark:text-white px-4 py-1.5 rounded text-sm transition-colors duration-150" > Cancel </button>
                             <button onClick={submitSpeakerMap} className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white px-4 py-1.5 rounded text-sm transition-colors duration-150" > Save Speaker Map </button>
                         </div>
                     </div>
@@ -775,7 +998,8 @@ function App() {
                         <h2 className="text-lg font-semibold mb-4 text-gray-900 dark:text-gray-100">Confirm Deletion</h2>
                         <p className="text-sm text-gray-700 dark:text-gray-300 mb-6">
                             {resourceToDelete
-                                ? <>Are you sure you want to permanently delete <strong className='font-medium'>"{resourceToDelete.original_name}"</strong>?</>
+                                ? <>Are you sure you want to permanently delete <strong className='font-medium break-all'>"{resourceToDelete.original_name}"</strong>?</>
+                                // Use selectedResources length directly for accuracy at confirmation time
                                 : <>Are you sure you want to permanently delete the <strong className='font-medium'>{selectedResources.length}</strong> selected resource(s)?</>
                             }
                             <br />This action cannot be undone.
