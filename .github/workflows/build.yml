@@ -41,7 +41,7 @@ jobs:
         with:
           node-version: 'lts/*'
           cache: 'npm'
-          cache-dependency-path: client/package-lock.json # Assuming lock file is in client
+          cache-dependency-path: ./package-lock.json # Assuming lock file is in client
 
       # Install Node deps (remains the same, assuming root package.json orchestrates)
       # If the top-level package.json is the only one with dependencies:
