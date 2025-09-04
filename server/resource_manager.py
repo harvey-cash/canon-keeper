@@ -1,3 +1,6 @@
+# Define SecurityError for path validation
+class SecurityError(Exception):
+    pass
 # resource_manager.py
 
 import io
@@ -40,6 +43,12 @@ class ResourceManager:
 
     def _get_resource_dir(self, resource_type: ResourceType) -> Path:
         """Gets the directory path for a given resource type."""
+        if isinstance(resource_type, str):
+            # Convert string to ResourceType if possible
+            try:
+                resource_type = ResourceType(resource_type)
+            except ValueError:
+                raise InvalidResourceTypeError(f"Invalid resource type: {resource_type}")
         return self.base_dir / resource_type.value
 
     def _sanitize_filename_part(self, name_part: str) -> str:
@@ -102,6 +111,11 @@ class ResourceManager:
 
     async def save_uploaded_file(self, file: UploadFile, resource_type: ResourceType) -> ResourceMetadata:
         """Saves an uploaded file, returns its metadata."""
+        if isinstance(resource_type, str):
+            try:
+                resource_type = ResourceType(resource_type)
+            except ValueError:
+                raise InvalidResourceTypeError(f"Invalid resource type: {resource_type}")
         resource_id = str(uuid.uuid4())
         # Use provided filename, fallback if empty
         original_name = file.filename if file.filename else f"upload_{resource_id}"

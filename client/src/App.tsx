@@ -188,6 +188,40 @@ function App() {
         fetchResources();
     }, [fetchResources]); // Initial fetch
 
+    // --- Auto-populate API keys from json_keys resource ---
+    useEffect(() => {
+        // Find the most recently created json_keys resource
+        const keysResources = resources.filter(r => r.type === 'json_keys');
+        if (keysResources.length === 0) return;
+        // Pick the newest one
+        keysResources.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        const latestKeys = keysResources[0];
+        // Download and parse it
+        (async () => {
+            try {
+                const resp = await fetch(`${API_BASE_URL}/download/json_keys/${latestKeys.id}`);
+                if (!resp.ok) return;
+                const json = await resp.json();
+                // Only update if values are present and different
+                setApiKeys(prev => {
+                    let changed = false;
+                    const newKeys: typeof prev = { ...prev };
+                    if (json["assembly-ai"] && json["assembly-ai"] !== prev.assemblyAi) {
+                        newKeys.assemblyAi = json["assembly-ai"];
+                        changed = true;
+                    }
+                    if (json["google-gemini"] && json["google-gemini"] !== prev.googleGemini) {
+                        newKeys.googleGemini = json["google-gemini"];
+                        changed = true;
+                    }
+                    return changed ? newKeys : prev;
+                });
+            } catch (e) {
+                // Ignore errors
+            }
+        })();
+    }, [resources]);
+
     const toggleResourceSelection = useCallback((id: string) => {
         setSelectedResourceIds(prev => {
             const newSet = new Set(prev);
@@ -264,6 +298,7 @@ function App() {
         const getUploadResourceType = (filename: string): ResourceTypeString | null => {
             const ext = filename.split('.').pop()?.toLowerCase();
             if (!ext) return null;
+            if (filename.toLowerCase() === 'keys.json') return 'json_keys'; // <-- must check this first
             if (filename.toLowerCase().includes('prompt') && ext === 'txt') return 'text_prompt';
             // Allow uploading speaker maps directly
             if (filename.toLowerCase().includes('speaker_map') && ext === 'json') return 'json_speaker_map';

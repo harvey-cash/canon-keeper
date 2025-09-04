@@ -15,6 +15,7 @@ class ResourceType(Enum):
     TEXT_RECAP = "text_recap"
     TEXT_SUMMARY = "text_summary"
     TEXT_PROMPT = "text_prompt" # For recap/summary prompts
+    JSON_KEYS = "json_keys" # For keys.json uploads
 
 class ResourceMetadata(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
