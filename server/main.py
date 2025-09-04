@@ -90,12 +90,13 @@ def handle_resource_error(exc: ResourceError):
 @app.post("/upload/{resource_type_str}", status_code=status.HTTP_201_CREATED, response_model=ResourceMetadata)
 async def upload_resource(resource_type_str: str, file: UploadFile = File(...)):
     """Uploads a file resource (video, audio, json, text)."""
+
     try:
         # Validate ResourceType enum
         resource_type = ResourceType(resource_type_str)
         # Disallow direct snippet upload via this endpoint for clarity
         if resource_type == ResourceType.SNIPPET:
-             raise InvalidResourceTypeError("Direct upload of 'snippet' type is not allowed.")
+            raise InvalidResourceTypeError("Direct upload of 'snippet' type is not allowed.")
     except ValueError:
         valid_types = [rt.value for rt in ResourceType if rt != ResourceType.SNIPPET]
         raise HTTPException(
@@ -103,10 +104,9 @@ async def upload_resource(resource_type_str: str, file: UploadFile = File(...)):
             detail=f"Invalid resource type '{resource_type_str}'. Valid types are: {valid_types}"
         )
 
-    print(f"Attempting upload: filename='{file.filename}', content_type='{file.content_type or 'N/A'}', resource_type='{resource_type.value}'")
+    print(f"Attempting upload: filename='{file.filename}', content_type='{file.content_type or 'N/A'}', resource_type='{resource_type_str}'")
 
     try:
-        # Delegate saving to the ResourceManager
         resource_metadata = await resource_mgr.save_uploaded_file(file, resource_type)
         return resource_metadata
     except ResourceError as e:
