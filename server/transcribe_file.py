@@ -14,10 +14,6 @@ VIDEO_FORMATS = ['mp4', 'mov', 'avi', 'mkv', 'flv', 'wmv']
 AUDIO_FORMATS = ['mp3']
 
 def transcribe(file_path, audio_data):
-    """
-    Converts a video file to a session transcript, using a temporary directory
-    for intermediate files.
-    """
     print(f"Processing file: {file_path}")
 
     try:
@@ -74,11 +70,11 @@ if __name__ == "__main__":
     try:
         dotenv.load_dotenv(dotenv.find_dotenv())
 
-        argparser = argparse.ArgumentParser(description="Convert video file to transcript.")
-        argparser.add_argument("video_file", help="Path to the input video file.")
+        argparser = argparse.ArgumentParser(description="Convert file to transcript.")
+        argparser.add_argument("input_file", help="Path to the input file.")
         args = argparser.parse_args()
 
-        input_file = args.video_file
+        input_file = args.input_file
 
         input_name = os.path.basename(input_file).split('.')[0]
         input_extension = os.path.basename(input_file).split('.')[-1].lower()
