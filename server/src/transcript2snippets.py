@@ -6,6 +6,8 @@ from pydub import exceptions as pydub_exceptions
 
 from . import file_io
 
+MAX_SNIPPET_LEN_SECS = 5
+WORDS_PER_SECOND = 3
 
 def _group_utterances_by_speaker(
     utterances: typing.List[typing.Dict[str, typing.Any]],
@@ -72,12 +74,21 @@ def _extract_snippets(
             print(f"{speaker}: invalid start/end times ({start_ms}-{end_ms}).")
             continue
 
+        text = utterance["text"]
+
+        if end_ms - start_ms > MAX_SNIPPET_LEN_SECS * 1000:
+            print(f"Truncating snippet for Speaker {speaker} to {MAX_SNIPPET_LEN_SECS} seconds.")
+            end_ms = start_ms + MAX_SNIPPET_LEN_SECS * 1000
+            text_words = text.split(" ")
+            max_words = MAX_SNIPPET_LEN_SECS * WORDS_PER_SECOND
+            text = " ".join(text_words[:max_words])
+
         try:
             snippet = full_audio[start_ms:end_ms]
             buffer = io.BytesIO()
             snippet.export(buffer, format="mp3")
             buffer.seek(0)
-            speaker_snippets[speaker] = {"text": utterance["text"], "audio": buffer}
+            speaker_snippets[speaker] = {"text": text, "audio": buffer}
 
         except Exception as e:
             print(f"  Error exporting snippet for Speaker {speaker}: {e}")
