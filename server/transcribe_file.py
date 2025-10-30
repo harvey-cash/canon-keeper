@@ -13,6 +13,28 @@ from src.transcript2session import transcript_to_session
 VIDEO_FORMATS = ['mp4', 'mov', 'avi', 'mkv', 'flv', 'wmv']
 AUDIO_FORMATS = ['mp3']
 
+
+def _identify_speakers(snippets):
+    with tempfile.TemporaryDirectory() as temp_dir:
+        snippets_file_path = os.path.join(temp_dir, "snippets.json")
+        label_text_map = { speaker: data["text"] for speaker, data in snippets.items() }
+        json.dump(label_text_map, open(snippets_file_path, "w"), indent=4)
+
+        # Save truncated audio snippets to temp dir
+        for speaker, speaker_dict in snippets.items():
+            save_path = os.path.join(temp_dir, f"speaker_{speaker}_snippet.mp3")
+            with open(save_path, "wb") as f_audio:
+                copy_stream(speaker_dict["audio"], f_audio)
+
+        print("Saved snippets to temporary directory.")
+        
+        # Process snippets from the temporary directory
+        speaker_map = snippets_to_speakers(snippets_file_path, temp_dir)
+        print(f"Speaker map: {speaker_map}")
+
+        return speaker_map
+
+
 def transcribe(file_path, audio_data):
     print(f"Processing file: {file_path}")
 
@@ -27,36 +49,14 @@ def transcribe(file_path, audio_data):
             print("Failed to extract snippets from transcript.")
             return None
         
-        print(f"Generated {len(snippets)} snippets.")
-
-        # Create a temporary directory for all intermediate files
-        with tempfile.TemporaryDirectory() as temp_dir:
-            print(f"Using temporary directory: {temp_dir}")
-
-            # Save full transcript to temp dir
-            json.dump(transcript, open(os.path.join(temp_dir, "transcript.json"), "w"), indent=4)
-
-            # Create truncated snippet text map
-            snippets_file_path = os.path.join(temp_dir, "snippets.json")
-            label_text_map = { speaker: data["text"] for speaker, data in snippets.items() }
-            json.dump(label_text_map, open(snippets_file_path, "w"), indent=4)
-
-            # Save truncated audio snippets to temp dir
-            for speaker, speaker_dict in snippets.items():
-                save_path = os.path.join(temp_dir, f"speaker_{speaker}_snippet.mp3")
-                with open(save_path, "wb") as f_audio:
-                    copy_stream(speaker_dict["audio"], f_audio)
-
-            print("Saved snippets and transcript to temporary directory.")
-            
-            # Process snippets from the temporary directory
-            speaker_map = snippets_to_speakers(snippets_file_path, temp_dir)
-            print(f"Speaker map: {speaker_map}")
-
-            # Generate the final session transcript
-            session_transcript = transcript_to_session(transcript, speaker_map)
+        speaker_map = {}
         
-        # temp_dir and its contents are automatically deleted here
+        if len(snippets) > 1:
+            print("Multiple speakers detected, initiating speaker identification...")
+            speaker_map = _identify_speakers(snippets)
+
+        # Generate the final session transcript
+        session_transcript = transcript_to_session(transcript, speaker_map)
 
         print("Transcription successful")
         return session_transcript

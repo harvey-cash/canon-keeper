@@ -14,15 +14,18 @@ def transcript_to_session(
     """Formats the transcript, replacing speaker labels with names from the map."""
     if not transcript["utterances"]:
         return "No utterances found in the transcript."
+    
+    has_multiple_speakers = not (speaker_name_map is None or not speaker_name_map)
 
     formatted_lines = []
     for utterance in transcript["utterances"]:
         original_label = utterance["speaker"] if utterance["speaker"] else "Unknown"
         # Use identified name if available, otherwise use original label
-        display_speaker = speaker_name_map.get(
-            original_label, f"Speaker {original_label}"
-        )
-        formatted_lines.append(f"{display_speaker}:")
+        display_speaker = speaker_name_map.get(original_label, f"Speaker {original_label}")
+
+        if has_multiple_speakers:
+            formatted_lines.append(f"{display_speaker}:")
+        
         formatted_lines.append(utterance["text"])
         formatted_lines.append("")  # Add blank line between utterances
 
