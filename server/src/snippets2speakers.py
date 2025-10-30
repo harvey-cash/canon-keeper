@@ -30,10 +30,11 @@ import json
 import os
 import sys
 import typing
+import multiprocessing  # <-- Added for interruptible playback
 
 try:
     from playsound import playsound
-    from playsound import PlaysoundException
+    # PlaysoundException is no longer caught, but the import check is still good.
 except ImportError:
     print(
         "Error: The 'playsound' library is required. Please install it:",
@@ -61,45 +62,38 @@ def _load_snippet_data(json_path: str) -> typing.Optional[dict]:
         return None
 
 
-def _play_audio(audio_path: str) -> bool:
-    """Plays the specified audio file."""
+def _play_audio(audio_path: str) -> None:
+    """
+    Plays the specified audio file in a separate process.
+    Allows the user to press [Enter] to interrupt playback.
+    """
     if not os.path.exists(audio_path):
         print(f"Error: Audio file not found at: {audio_path}", file=sys.stderr)
-        return False
+        return
 
-    print("Playing audio...")
+    # Create a process to play the sound.
+    # We must use multiprocessing, as threading is blocked by the playsound module.
+    process = multiprocessing.Process(target=playsound, args=(audio_path,))
+    process.daemon = True  # So it exits if the main program exits
+
     try:
-        playsound(audio_path)
-        return True
-    except PlaysoundException as e:
-        print(f"Error playing audio: {e}", file=sys.stderr)
-        return False
-    except Exception as e:
-        print(f"An unexpected error occurred during playback: {e}", file=sys.stderr)
-        return False
+        process.start()
+        print("\nPlaying audio... Press [Enter] to skip OR to continue when done.")
+        # Wait for user to press Enter.
+        input()
 
+    except KeyboardInterrupt:
+        # Handle Ctrl+C gracefully
+        print("\nPlayback interrupted by user (Ctrl+C).")
+        # Re-raise the exception to be caught by the main loop
+        raise
 
-def _get_user_choice() -> str:
-    """Gets the user's next action (Play, Name, Quit)."""
-    while True:
-        print("\nChoose an action:")
-        choice = (
-            input("  [P]lay again, [N]ame speaker, [Q]uit program: ")
-            .lower()
-            .strip()
-        )
-        if choice and choice[0] in ("p", "n", "q"):
-            return choice[0]
-        print("Invalid choice. Please enter 'P', 'N', or 'Q'.")
-
-
-def _get_speaker_name() -> str:
-    """Prompts the user to enter a name for the speaker."""
-    while True:
-        name = input("Enter name for this speaker: ").strip()
-        if name:
-            return name
-        print("Name cannot be empty. Please enter a name.")
+    finally:
+        # This block runs whether input() completes or KeyboardInterrupt happens
+        if process.is_alive():
+            print("Stopping audio...")
+            process.terminate()
+            process.join()  # Wait for the process to terminate
 
 
 def _process_speaker(
@@ -114,17 +108,19 @@ def _process_speaker(
     print("=" * 50)
     print(f'Longest Utterance: "{utterance_text}"')
 
+    # This function now blocks until the user presses [Enter]
     _play_audio(audio_path)
 
     while True:
-        choice = _get_user_choice()
+        name = (
+            input("  Name the speaker (or press [Enter] to play the audio again): ")
+            .strip()
+        )
 
-        if choice == "p":
+        if name == None or name == "":
             _play_audio(audio_path)
-        elif choice == "n":
-            return _get_speaker_name()
-        elif choice == "q":
-            return None
+        else:
+            return name
 
 
 def _parse_arguments() -> argparse.Namespace:
@@ -166,13 +162,8 @@ def snippets_to_speakers(json_file_path: str, snippets_dir_path: str) -> dict:
     )
 
     try:
+        # Assuming snippet_data is {"A": {"text": "..."}, "B": {"text": "..."}}
         for speaker_label, text in snippet_data.items():
-            if not text:
-                print(
-                    f"Warning: No 'text' found for speaker {speaker_label}. Skipping."
-                )
-                continue
-
             # Construct the expected audio filename
             audio_filename = f"speaker_{speaker_label}_snippet.mp3"
             audio_path = os.path.join(snippets_dir_path, audio_filename)
@@ -214,5 +205,5 @@ def main():
 
 
 if __name__ == "__main__":
+    # This check is crucial for multiprocessing to work correctly on Windows
     main()
-

@@ -48,7 +48,6 @@ def transcribe(file_path, audio_data):
                     copy_stream(speaker_dict["audio"], f_audio)
 
             print("Saved snippets and transcript to temporary directory.")
-            input("Press Enter to continue...")
             
             # Process snippets from the temporary directory
             speaker_map = snippets_to_speakers(snippets_file_path, temp_dir)
