@@ -3,7 +3,7 @@ import os
 import argparse
 import json
 import tempfile  # Added for temporary directory
-from src.file_io import prepare_file_dialogs, read_video_file, copy_stream, load_audio
+from src.file_io import read_video_file, read_audio_file, copy_stream
 from src.video2audio import video_to_mp3
 from src.audio2transcript import audio_to_transcript
 from src.transcript2snippets import transcript_to_snippets
@@ -13,12 +13,12 @@ from src.transcript2session import transcript_to_session
 VIDEO_FORMATS = ['mp4', 'mov', 'avi', 'mkv', 'flv', 'wmv']
 AUDIO_FORMATS = ['mp3']
 
-def audio_to_transcript(file_path, audio_data):
+def transcribe(file_path, audio_data):
     """
     Converts a video file to a session transcript, using a temporary directory
     for intermediate files.
     """
-    print(f"Processing video file: {file_path}")
+    print(f"Processing file: {file_path}")
 
     try:
         transcript = audio_to_transcript(audio_data, os.getenv("ASSEMBLY_AI_API_KEY"))
@@ -73,7 +73,6 @@ def audio_to_transcript(file_path, audio_data):
 if __name__ == "__main__":
     try:
         dotenv.load_dotenv(dotenv.find_dotenv())
-        prepare_file_dialogs()
 
         argparser = argparse.ArgumentParser(description="Convert video file to transcript.")
         argparser.add_argument("video_file", help="Path to the input video file.")
@@ -91,14 +90,14 @@ if __name__ == "__main__":
             video_data = read_video_file(input_file)
             audio_data = video_to_mp3(video_data)
         else:
-            audio_data = load_audio(input_file)
+            audio_data = read_audio_file(input_file)
 
         if audio_data is None:
             raise ValueError("Failed to load audio data from the input file.")
 
         print(f"Transcribing file: {input_file}")
 
-        transcript = audio_to_transcript(input_file, audio_data)
+        transcript = transcribe(input_file, audio_data)
         if transcript is None:
             raise ValueError("Transcription failed or returned no data.")
         
