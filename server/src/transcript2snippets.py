@@ -49,9 +49,9 @@ def _extract_snippets(
     try:
         audio_data.seek(0)  # Ensure stream is at the beginning
         # Load audio, explicitly stating format if needed (pydub often infers)
-        full_audio = AudioSegment.from_file(audio_data, format="mp3")
+        full_audio = AudioSegment.from_file(audio_data)
     except pydub_exceptions.CouldntDecodeError:
-        print("Error: Could not decode audio file. Is it a valid MP3?")
+        print("Error: Could not decode audio file. Is it a valid file format?")
         return {}
     except FileNotFoundError:
         # This might indicate ffmpeg/ffprobe is not installed or not in PATH
