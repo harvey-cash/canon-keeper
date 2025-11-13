@@ -11,7 +11,7 @@ from src.snippets2speakers import snippets_to_speakers
 from src.transcript2session import transcript_to_session
 
 VIDEO_FORMATS = ['mp4', 'mov', 'avi', 'mkv', 'flv', 'wmv']
-AUDIO_FORMATS = ['mp3']
+AUDIO_FORMATS = ['mp3', 'm4a']
 
 
 def _identify_speakers(snippets):
