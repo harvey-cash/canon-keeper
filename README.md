@@ -42,6 +42,10 @@ It extracts audio, transcribes, generates recaps, and generally helps players an
         npm install
     ```
 
+## Troubleshooting
+
+If when running `pip install playsound` you get the following error: "Getting requirements to build wheel did not run successfully", then try running `pip install --upgrade setuptools wheel` first.
+
 ## Development
 
 - Launch backend server:
