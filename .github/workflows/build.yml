@@ -21,21 +21,23 @@ jobs:
         with:
           python-version: '3.13'
 
-      # *** NEW STEP: Create the virtual environment ***
       # The build_server.py script specifically looks for this directory.
       - name: Create virtual environment
         run: python -m venv .venv
         shell: bash # Use bash for consistency, python -m venv works cross-platform
 
-      # *** MODIFIED STEP: Install Python dependencies INTO the venv ***
+      - name: Upgrade setuptools and wheel before installing other requirements
+        run: ./.venv/Scripts/python -m pip install --upgrade setuptools wheel
+        shell: bash
+
+      # *** Install Python dependencies into the venv ***
       # Use the python executable within the created .venv to install packages.
       # Use bash syntax for the path even on Windows runner, GitHub Actions handles it.
-      # Make sure 'pyinstaller' is included in your requirements.txt!
       - name: Install Python dependencies into venv
         run: ./.venv/Scripts/python -m pip install -r requirements.txt
         shell: bash # Use bash for path consistency
 
-      # Setup Node.js (remains the same)
+      # Setup Node.js
       - name: Set up Node.js (LTS)
         uses: actions/setup-node@v4
         with:
