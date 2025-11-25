@@ -5,6 +5,28 @@ It extracts audio, transcribes, generates recaps, and generally helps players an
 
 ![Screenshot](./screenshot.png "Screenshot")
 
+## Quick Transcription (recommended)
+
+The primary entry point now is the command-line transcriber. This is the fastest way to get a transcript from a video or audio file.
+
+- Install and activate Python venv (see Requirements below).
+- Install Python dependencies:
+
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+- Install ffmpeg and add its /bin folder to an environment variable named FFMPEG (required). On Windows, you can add a system environment variable pointing to the ffmpeg bin folder. For convenience, Windows 10 users can add a command via regedit to the Explorer right-click context menu, and Windows 11 users can use tools such as Nilesoft Shell — but explicit registry/tool steps are not provided here.
+
+- Transcribe a file:
+
+    ```bash
+    .venv\Scripts\activate
+    python server\transcribe_file.py path\to\your\video_or_audio_file.mp4
+    ```
+
+- Output: a transcript file named <input>_transcript.txt will be written beside the input file.
+
 ## Requirements
 
 - Install [Python: v3.13.2](https://www.python.org/downloads/release/python-3132/)
@@ -26,7 +48,7 @@ It extracts audio, transcribes, generates recaps, and generally helps players an
         pip install -r requirements.txt
         ```
 
-- Install [ffmpeg: v2025-03-31-git-35c091f4b7](https://www.gyan.dev/ffmpeg/builds/) (Once extracted, add /bin folder to system PATH environment variable)
+- Install [ffmpeg: v2025-03-31-git-35c091f4b7](https://www.gyan.dev/ffmpeg/builds/) (Once extracted, add /bin folder to system PATH environment variable or set a system environment variable named FFMPEG pointing to the /bin folder)
 - Install Node Version Manager [NVM](https://github.com/coreybutler/nvm-windows) for managing Node.js versions.
   - Install NodeJS:
 
@@ -46,7 +68,9 @@ It extracts audio, transcribes, generates recaps, and generally helps players an
 
 If when running `pip install playsound` you get the following error: "Getting requirements to build wheel did not run successfully", then try running `pip install --upgrade setuptools wheel` first.
 
-## Development
+## Web App (optional)
+
+The web application and development workflow are provided but are secondary to the CLI transcriber. If you prefer to run the web interface, follow these steps:
 
 - Launch backend server:
 
@@ -62,13 +86,11 @@ If when running `pip install playsound` you get the following error: "Getting re
     npm run dev
     ```
 
-## Build
+- Build:
 
-```bash
-npm run build
-```
-
-Should create a `CanonKeeper` folder at `server/dist` with an executable and _internal sub-folder. When `CanonKeeper.exe` is launched, it will also create a `resources` folder where the application is located.
+    ```bash
+    npm run build
+    ```
 
 ## Tech Stack
 

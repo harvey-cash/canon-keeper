@@ -1,10 +1,16 @@
 import io
 import typing
+import os
 
 from pydub import AudioSegment
 from pydub import exceptions as pydub_exceptions
 
 from . import file_io
+
+ffmpeg = os.environ['FFMPEG']
+AudioSegment.converter = '{ffmpeg}\\ffmpeg.exe'
+AudioSegment.ffmpeg = '{ffmpeg}\\ffmpeg.exe'
+AudioSegment.ffprobe = '{ffmpeg}\\ffprobe.exe'
 
 MAX_SNIPPET_LEN_SECS = 5
 WORDS_PER_SECOND = 3
