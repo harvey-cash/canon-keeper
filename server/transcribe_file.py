@@ -44,16 +44,27 @@ def transcribe(file_path, audio_data):
             print("Failed to transcribe audio.")
             return None
         
-        snippets = transcript_to_snippets(audio_data, transcript.get("utterances"))
-        if not snippets:
-            print("Failed to extract snippets from transcript.")
-            return None
-        
+        utterances = transcript.get("utterances")
         speaker_map = {}
-        
-        if len(snippets) > 1:
-            print("Multiple speakers detected, initiating speaker identification...")
-            speaker_map = _identify_speakers(snippets)
+
+        try:
+            snippets = transcript_to_snippets(audio_data, utterances)
+            if not snippets:
+                raise ValueError("Failed to extract snippets from transcript.")
+            
+            if len(snippets) > 1:
+                print("Multiple speakers detected, initiating speaker identification...")
+                speaker_map = _identify_speakers(snippets)
+            
+        except Exception as e:
+            print(f"Error extracting snippets: {e}")
+            generic_labels = { utterance["speaker"] for utterance in utterances }
+
+            if len(generic_labels) > 1:
+                print("Multiple speakers detected, assigning generic labels...")
+                speaker_map = { speaker: f"Speaker {speaker}" for speaker in generic_labels }
+
+        print(f"Speaker mapping: {speaker_map}")
 
         # Generate the final session transcript
         session_transcript = transcript_to_session(transcript, speaker_map)
