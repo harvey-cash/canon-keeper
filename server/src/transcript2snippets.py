@@ -8,9 +8,9 @@ from pydub import exceptions as pydub_exceptions
 from . import file_io
 
 ffmpeg = os.environ['FFMPEG']
-AudioSegment.converter = '{ffmpeg}\\ffmpeg.exe'
+print("Using FFmpeg path:", ffmpeg)
+AudioSegment.converter = '{ffmpeg}'
 AudioSegment.ffmpeg = '{ffmpeg}\\ffmpeg.exe'
-AudioSegment.ffprobe = '{ffmpeg}\\ffprobe.exe'
 
 MAX_SNIPPET_LEN_SECS = 5
 WORDS_PER_SECOND = 3
@@ -59,11 +59,10 @@ def _extract_snippets(
     except pydub_exceptions.CouldntDecodeError:
         print("Error: Could not decode audio file. Is it a valid file format?")
         return {}
-    except FileNotFoundError:
+    except FileNotFoundError as e:
+        print(f"FileNotFoundError: {e}")
         # This might indicate ffmpeg/ffprobe is not installed or not in PATH
-        print(
-            "Error: Could not process audio. Is FFmpeg/FFprobe installed and in PATH?"
-        )
+        print("Error: Could not process audio. Is FFmpeg/FFprobe installed and in PATH?")
         return {}
     except Exception as e:
         print(f"Error loading audio with pydub: {e}")
